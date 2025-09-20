@@ -65,6 +65,10 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
 void mousePositionCallback(GLFWwindow* window, double xpos, double ypos);
 void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
 
+// Extra imgui vars
+bool isCompact = false;
+bool isMatSort = false;
+
 std::string currentTimeString()
 {
     time_t now;
@@ -279,7 +283,8 @@ void RenderImGui()
 
     //ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
     //ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
-
+    ImGui::Checkbox("Toggle Stream Compaction", &isCompact);
+    ImGui::Checkbox("Toggle Material Sorting", &isMatSort);
     //if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
     //    counter++;
     //ImGui::SameLine();
@@ -458,7 +463,7 @@ void runCuda()
 
         // execute the kernel
         int frame = 0;
-        pathtrace(pbo_dptr, frame, iteration);
+        pathtrace(pbo_dptr, frame, iteration, isCompact, isMatSort);
 
         // unmap buffer object
         cudaGLUnmapBufferObject(pbo);

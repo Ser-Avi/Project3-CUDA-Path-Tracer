@@ -21,9 +21,20 @@ struct Ray
     glm::vec3 direction;
 };
 
+enum MaterialType
+{
+    NONE = 0,
+    EMISSIVE,
+    DIFFUSE,
+    SPECULAR_REFL,
+    SPECULAR_TRANS,
+    MICROFACET
+};
+
 struct Geom
 {
     enum GeomType type;
+    MaterialType material;
     int materialid;
     glm::vec3 translation;
     glm::vec3 rotation;
@@ -35,6 +46,7 @@ struct Geom
 
 struct Material
 {
+    MaterialType type;
     glm::vec3 color;
     struct
     {
@@ -72,8 +84,10 @@ struct PathSegment
 {
     Ray ray;
     glm::vec3 color;
+    glm::vec3 thp;
     int pixelIndex;
     int remainingBounces;
+    bool keepLooping;
 };
 
 // Use with a corresponding PathSegment to do:
@@ -84,4 +98,5 @@ struct ShadeableIntersection
   float t;
   glm::vec3 surfaceNormal;
   int materialId;
+  MaterialType materialType;
 };

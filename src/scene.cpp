@@ -47,17 +47,20 @@ void Scene::loadFromJSON(const std::string& jsonName)
         {
             const auto& col = p["RGB"];
             newMaterial.color = glm::vec3(col[0], col[1], col[2]);
+            newMaterial.type = DIFFUSE;
         }
         else if (p["TYPE"] == "Emitting")
         {
             const auto& col = p["RGB"];
             newMaterial.color = glm::vec3(col[0], col[1], col[2]);
             newMaterial.emittance = p["EMITTANCE"];
+            newMaterial.type = EMISSIVE;
         }
         else if (p["TYPE"] == "Specular")
         {
             const auto& col = p["RGB"];
             newMaterial.color = glm::vec3(col[0], col[1], col[2]);
+            newMaterial.type = SPECULAR_REFL;
         }
         MatNameToID[name] = materials.size();
         materials.emplace_back(newMaterial);
@@ -76,6 +79,7 @@ void Scene::loadFromJSON(const std::string& jsonName)
             newGeom.type = SPHERE;
         }
         newGeom.materialid = MatNameToID[p["MATERIAL"]];
+        newGeom.material = materials.at(newGeom.materialid).type;
         const auto& trans = p["TRANS"];
         const auto& rotat = p["ROTAT"];
         const auto& scale = p["SCALE"];
