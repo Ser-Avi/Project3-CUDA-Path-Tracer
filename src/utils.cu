@@ -21,7 +21,6 @@ namespace Utils
         int* materialStartIndices, int* materialEndIndices) {
         int index = (blockIdx.x * blockDim.x) + threadIdx.x;
         if (index > N - 1) return;
-
         MaterialType thisMat = intSects[index].materialType;
 
         if (index > 0 && index < N - 1 && thisMat != intSects[index - 1].materialType)
@@ -40,7 +39,11 @@ namespace Utils
     }
 }
 
+namespace PBR
+{
 
+
+}
 
 
 

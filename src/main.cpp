@@ -67,7 +67,7 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
 
 // Extra imgui vars
 bool isCompact = false;
-bool isMatSort = false;
+bool isMatSort = true;
 
 std::string currentTimeString()
 {
