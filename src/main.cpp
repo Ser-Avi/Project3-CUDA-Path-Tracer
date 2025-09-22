@@ -68,6 +68,7 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
 // Extra imgui vars
 bool isCompact = false;
 bool isMatSort = true;
+bool isStochastic = true;
 
 std::string currentTimeString()
 {
@@ -285,6 +286,7 @@ void RenderImGui()
     //ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
     ImGui::Checkbox("Toggle Stream Compaction", &isCompact);
     ImGui::Checkbox("Toggle Material Sorting", &isMatSort);
+    ImGui::Checkbox("Toggle Stochastic Sampling", &isStochastic);
     //if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
     //    counter++;
     //ImGui::SameLine();
@@ -463,7 +465,7 @@ void runCuda()
 
         // execute the kernel
         int frame = 0;
-        pathtrace(pbo_dptr, frame, iteration, isCompact, isMatSort);
+        pathtrace(pbo_dptr, frame, iteration, isCompact, isMatSort, isStochastic);
 
         // unmap buffer object
         cudaGLUnmapBufferObject(pbo);

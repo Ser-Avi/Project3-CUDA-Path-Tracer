@@ -41,8 +41,41 @@ namespace Utils
 
 namespace PBR
 {
+    __global__ void kernShadeNosect(int iter,
+        int num_paths,
+        ShadeableIntersection* shadeableIntersections,
+        PathSegment* pathSegments,
+        Material* materials)
+    {
+        inlineShadeNosect(iter, num_paths, shadeableIntersections, pathSegments, materials);
+    }
 
+    __global__ void kernShadeDiffuse(int iter,
+        int num_paths,
+        ShadeableIntersection* shadeableIntersections,
+        PathSegment* pathSegments,
+        Material* materials)
+    {
+        inlineShadeDiffuse(iter, num_paths, shadeableIntersections, pathSegments, materials);
+    }
 
+    __global__ void kernShadeEmissive(int iter,
+        int num_paths,
+        ShadeableIntersection* shadeableIntersections,
+        PathSegment* pathSegments,
+        Material* materials)
+    {
+        inlineShadeEmissive(iter, num_paths, shadeableIntersections, pathSegments, materials);
+    }
+
+    __global__ void kernShadeSpecularRefl(int iter,
+        int num_paths,
+        ShadeableIntersection* shadeableIntersections,
+        PathSegment* pathSegments,
+        Material* materials)
+    {
+        inlineShadeSpecularRefl(iter, num_paths, shadeableIntersections, pathSegments, materials);
+    }
 }
 
 
