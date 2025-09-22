@@ -190,6 +190,55 @@ namespace PBR
         }
     }
 
+    DEV_INLINE void inlineShadeSpecularTrans(int iter,
+        int num_paths,
+        ShadeableIntersection* shadeableIntersections,
+        PathSegment* pathSegments,
+        Material* materials)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (idx < num_paths)
+        {
+            ShadeableIntersection intersection = shadeableIntersections[idx];
+            PathSegment* seg = &pathSegments[idx];
+            Material material = materials[intersection.materialId];
+            glm::vec3 materialColor = material.color;
+
+            glm::vec3 nor = intersection.surfaceNormal;
+
+            // either air or material -> not supporting two dielectrics
+            float etaA = 1.;
+            float etaB = material.indexOfRefraction;
+
+            glm::vec3 wi;
+            // checking if ray is coming from inside the house O.O
+            bool entering = glm::dot(-seg->ray.direction, nor) > 0.;
+            // setting values appropriately
+            float etaI = entering ? etaA : etaB;
+            float etaT = entering ? etaB : etaA;
+            // Computing ray direction
+            glm::vec3 normal = -glm::faceforward(nor, -seg->ray.direction, nor); //entering ? nor : -nor;// -glm::faceforward(nor, -seg->ray.direction, nor);
+            float etaRatio = etaI / etaT;
+
+            wi = glm::refract(-seg->ray.direction, normal, etaRatio);
+
+            // glm::refract returns vec3(0) when total internal reflection occurs
+            if (length(wi) < 0.01) {
+                /*seg->color *= glm::vec3(0.);
+                seg->keepLooping = false;*/
+                wi = glm::reflect(seg->ray.direction, normal);
+            }
+
+            seg->remainingBounces--;
+            float offsetDir = entering ? -1.0f : 1.0f;
+            glm::vec3 p = seg->ray.origin + seg->ray.direction * intersection.t;
+            seg->ray.origin = p + normal * EPSILON * 5.f * offsetDir;
+            seg->ray.direction = wi;
+
+            seg->color *= materialColor;
+        }
+    }
+
     __global__ void kernShadeNosect(int iter,
         int num_paths,
         ShadeableIntersection* shadeableIntersections,
@@ -213,6 +262,20 @@ namespace PBR
         ShadeableIntersection* shadeableIntersections,
         PathSegment* pathSegments,
         Material* materials);
+
+    __global__ void kernShadeSpecularTrans(int iter,
+        int num_paths,
+        ShadeableIntersection* shadeableIntersections,
+        PathSegment* pathSegments,
+        Material* materials);
+
+    __global__ void kernShadeDielectric(int iter,
+        int num_paths,
+        ShadeableIntersection* shadeableIntersections,
+        PathSegment* pathSegments,
+        Material* materials);
+
+    __device__ glm::vec3 FresnelDielectricEval(float cosThetaI, float ior);
 }
 
 //namespace StreamCompaction {

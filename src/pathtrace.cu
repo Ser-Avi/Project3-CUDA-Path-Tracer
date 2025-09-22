@@ -19,7 +19,7 @@
 #include "interactions.h"
 
 #define ERRORCHECK 1
-#define MATERIAL_NUM 6
+#define MATERIAL_NUM 7
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
@@ -453,7 +453,6 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
             Utils::kernIdentifyStartEnd << <numblocksPathSegmentTracing, blockSize1d >> > (num_paths, dev_intersections, dev_materialStartIndices, dev_materialEndIndices);
             cudaMemcpy(hst_materialStartIndices, dev_materialStartIndices, sizeof(int) * MATERIAL_NUM, cudaMemcpyDeviceToHost);
             cudaMemcpy(hst_materialEndIndices, dev_materialEndIndices, sizeof(int) * MATERIAL_NUM, cudaMemcpyDeviceToHost);
-
             //num_paths = hst_materialStartIndices[0];
 
             for (int mat = 0; mat < MATERIAL_NUM; ++mat)
@@ -488,6 +487,14 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
                 case SPECULAR_REFL:
                     PBR::kernShadeSpecularRefl<<<numblocks, blockSize1d >> > (iter, count, dev_intersections + start, dev_paths + start, dev_materials);
                     checkCUDAError("specular");
+                    break;
+                case SPECULAR_TRANS:
+                    PBR::kernShadeSpecularTrans << <numblocks, blockSize1d >> > (iter, count, dev_intersections + start, dev_paths + start, dev_materials);
+                    checkCUDAError("transmissive");
+                    break;
+                case DIELECTRIC:
+                    PBR::kernShadeDielectric<<<numblocks, blockSize1d >> > (iter, count, dev_intersections + start, dev_paths + start, dev_materials);
+                    checkCUDAError("dielectric");
                     break;
                 default:
                     std::cout << "ruh roh" << std::endl;

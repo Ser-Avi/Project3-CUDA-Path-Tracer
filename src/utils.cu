@@ -22,11 +22,12 @@ namespace Utils
         int index = (blockIdx.x * blockDim.x) + threadIdx.x;
         if (index > N - 1) return;
         MaterialType thisMat = intSects[index].materialType;
+        MaterialType prevMat = intSects[index - 1].materialType;
 
-        if (index > 0 && index < N - 1 && thisMat != intSects[index - 1].materialType)
+        if (index > 0 && index < N - 1 && thisMat != prevMat)
         {
             materialStartIndices[thisMat] = index;
-            materialEndIndices[thisMat + 1] = index - 1;
+            materialEndIndices[prevMat] = index - 1;
         }
         else if (index == 0)
         {
@@ -75,6 +76,81 @@ namespace PBR
         Material* materials)
     {
         inlineShadeSpecularRefl(iter, num_paths, shadeableIntersections, pathSegments, materials);
+    }
+
+    __global__ void kernShadeSpecularTrans(int iter,
+        int num_paths,
+        ShadeableIntersection* shadeableIntersections,
+        PathSegment* pathSegments,
+        Material* materials)
+    {
+        inlineShadeSpecularTrans(iter, num_paths, shadeableIntersections, pathSegments, materials);
+    }
+
+    __global__ void kernShadeDielectric(int iter,
+        int num_paths,
+        ShadeableIntersection* shadeableIntersections,
+        PathSegment* pathSegments,
+        Material* materials)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (idx < num_paths)
+        {
+            ShadeableIntersection intersection = shadeableIntersections[idx];
+            PathSegment* seg = &pathSegments[idx];
+            Material material = materials[intersection.materialId];
+            thrust::default_random_engine rng = PBR::makeSeededRandomEngine(iter, idx, seg->remainingBounces);
+            thrust::uniform_real_distribution<float> u01(0, 1);
+            float ior = material.indexOfRefraction;// ? material.indexOfRefraction : 1.;
+            // use rng to get a random val between [0, 1] -> if its less than prob of refl, then we do reflection
+            // otherwise we will transmissive
+            if (u01(rng) < material.probReflVTrans)
+            {
+                inlineShadeSpecularRefl(iter, num_paths, shadeableIntersections, pathSegments, materials);
+                float cosThetaI = glm::dot(intersection.surfaceNormal, glm::normalize(seg->ray.direction));
+                seg->color *= 2.f * FresnelDielectricEval(cosThetaI, ior);
+            }
+            else
+            {
+                inlineShadeSpecularTrans(iter, num_paths, shadeableIntersections, pathSegments, materials);
+                float cosThetaI = glm::dot(intersection.surfaceNormal, glm::normalize(seg->ray.direction));
+                seg->color *= 2.f * (glm::vec3(1.f) - FresnelDielectricEval(cosThetaI, ior));
+            }
+        }
+    }
+
+    __device__ glm::vec3 FresnelDielectricEval(float cosThetaI, float ior)
+    {
+        // Assuming we are always either entering or exiting air
+        float etaI = 1.;
+        float etaT = ior;
+        cosThetaI = glm::clamp(cosThetaI, -1.f, 1.f);
+
+        // check if we're entering or exiting and swap accordingly
+        bool entering = cosThetaI > 0.f;
+        if (!entering) {
+            // swap etaI and etaT
+            float temp = etaI;
+            etaI = etaT;
+            etaT = temp;
+            cosThetaI = abs(cosThetaI);
+        }
+        // Snell's Law
+        float sinThetaI = sqrt(glm::max(0.0f, 1 - cosThetaI * cosThetaI));
+        float sinThetaT = etaI / etaT * sinThetaI;
+        // total internal reflection
+        if (sinThetaT >= 1) {
+            return glm::vec3(1.);
+        }
+
+        float cosThetaT = sqrt(glm::max(0.0f, 1 - sinThetaT * sinThetaT));
+        float Rparl = ((etaT * cosThetaI) - (etaI * cosThetaT)) /
+            ((etaT * cosThetaI) + (etaI * cosThetaT));
+        float Rperp = ((etaI * cosThetaI) - (etaT * cosThetaT)) /
+            ((etaI * cosThetaI) + (etaT * cosThetaT));
+        float ret = (Rparl * Rparl + Rperp * Rperp) * 0.5;
+
+        return glm::vec3(ret);
     }
 }
 

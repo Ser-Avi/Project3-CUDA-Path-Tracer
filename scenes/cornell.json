@@ -24,9 +24,11 @@
         },
         "specular_white":
         {
-            "TYPE":"Specular",
+            "TYPE":"Dielectric",
             "RGB":[0.98, 0.98, 0.98],
-            "ROUGHNESS":0.0
+            "ROUGHNESS":0.0,
+            "INDEX OF REFLECTION":1.55,
+            "REFLECTIONODDS":0.5
         }
     },
     "Camera":

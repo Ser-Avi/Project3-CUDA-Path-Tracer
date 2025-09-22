@@ -28,6 +28,7 @@ enum MaterialType
     DIFFUSE,
     SPECULAR_REFL,
     SPECULAR_TRANS,
+    DIELECTRIC,
     MICROFACET
 };
 
@@ -53,10 +54,11 @@ struct Material
         float exponent;
         glm::vec3 color;
     } specular;
-    float hasReflective;
-    float hasRefractive;
+    float probReflVTrans; // the probability of it reflecting vs transmitting
     float indexOfRefraction;
     float emittance;
+    float roughness;
+    float metallic;
 };
 
 struct Camera

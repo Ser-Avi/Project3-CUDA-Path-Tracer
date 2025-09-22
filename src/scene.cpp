@@ -62,6 +62,21 @@ void Scene::loadFromJSON(const std::string& jsonName)
             newMaterial.color = glm::vec3(col[0], col[1], col[2]);
             newMaterial.type = SPECULAR_REFL;
         }
+        else if (p["TYPE"] == "Transmissive")
+        {
+            const auto& col = p["RGB"];
+            newMaterial.color = glm::vec3(col[0], col[1], col[2]);
+            newMaterial.type = SPECULAR_TRANS;
+            newMaterial.indexOfRefraction = p["INDEX OF REFLECTION"];
+        }
+        else if (p["TYPE"] == "Dielectric")
+        {
+            const auto& col = p["RGB"];
+            newMaterial.color = glm::vec3(col[0], col[1], col[2]);
+            newMaterial.type = DIELECTRIC;
+            newMaterial.probReflVTrans = p["REFLECTIONODDS"];
+            newMaterial.indexOfRefraction = p["INDEX OF REFLECTION"];
+        }
         MatNameToID[name] = materials.size();
         materials.emplace_back(newMaterial);
     }
