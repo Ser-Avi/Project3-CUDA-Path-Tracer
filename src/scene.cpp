@@ -10,6 +10,7 @@
 #include <iostream>
 #include <string>
 #include <unordered_map>
+#include "GLTFManager.h"
 
 using namespace std;
 using json = nlohmann::json;
@@ -22,7 +23,27 @@ Scene::Scene(string filename)
     if (ext == ".json")
     {
         loadFromJSON(filename);
-        return;
+        //return;
+    }
+    else if (ext == ".gltf")
+    {
+        GLTFLoader loader;
+        if (!loader.load("../scenes/box.gltf")) {
+            std::cerr << "Failed to load GLTF file" << std::endl;
+            return;
+        }
+
+        // Upload to GPU
+        GLTFManager gpu_manager;
+        if (!gpu_manager.uploadToGPU(loader)) {
+            std::cerr << "Failed to upload to GPU" << std::endl;
+            return;
+        }
+
+        std::cout << "GLTF scene loaded successfully!" << std::endl;
+        std::cout << "Triangles: " << gpu_manager.getNumTriangles() << std::endl;
+        std::cout << "Materials: " << gpu_manager.getNumMaterials() << std::endl;
+        std::cout << "Textures: " << gpu_manager.getNumTextures() << std::endl;
     }
     else
     {

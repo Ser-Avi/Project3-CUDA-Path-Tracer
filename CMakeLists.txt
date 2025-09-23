@@ -59,6 +59,10 @@ set(headers
     src/sceneStructs.h
     src/utilities.h
     src/utils.h
+    src/tiny_gltf.h
+    src/stb_image.h
+    src/stb_image_write.h
+    src/GLTFManager.h
 )
 
 set(sources
@@ -72,6 +76,8 @@ set(sources
     src/scene.cpp
     src/utilities.cpp
     src/utils.cu
+    src/tiny_gltf_util.cpp
+    src/GLTFManager.cu
 )
 
 set(imgui_headers

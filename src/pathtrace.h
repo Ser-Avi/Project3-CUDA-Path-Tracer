@@ -3,6 +3,7 @@
 #include "scene.h"
 #include "utilities.h"
 #include "utils.h"
+#include "GLTFManager.h"
 
 void InitDataContainer(GuiDataContainer* guiData);
 void pathtraceInit(Scene *scene);

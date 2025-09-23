@@ -242,7 +242,6 @@ namespace PBR
             }
 
             seg->remainingBounces--;
-            float offsetDir = entering ? -1.0f : 1.0f;
             glm::vec3 p = seg->ray.origin + seg->ray.direction * intersection.t;
             seg->ray.origin = p + wi * EPSILON * 5.f;   // this 5 is creating an inside band but without it my rays can get really stuck :(
             seg->ray.direction = wi;
