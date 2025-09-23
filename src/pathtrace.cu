@@ -97,7 +97,7 @@ struct is_continue
     __device__ __host__
         bool operator()(const PathSegment& seg)
     {
-        return seg.keepLooping;
+        return seg.remainingBounces > 0;
     }
 };
 
@@ -197,7 +197,6 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 
         segment.pixelIndex = index;
         segment.remainingBounces = traceDepth;
-        segment.keepLooping = true;
         segment.color = glm::vec3(1.f);
 
     }
@@ -220,6 +219,8 @@ __global__ void computeIntersections(
     if (path_index < num_paths)
     {
         PathSegment* pathSegment = &pathSegments[path_index];
+
+        if (pathSegment->remainingBounces < 1) return;
 
         float t;
         glm::vec3 intersect_point;
@@ -262,8 +263,8 @@ __global__ void computeIntersections(
         {
             intersections[path_index].t = -1.0f;
             intersections[path_index].materialType = NONE;
-            pathSegment->keepLooping = false;
             pathSegment->color = glm::vec3(0.f);
+            pathSegment->remainingBounces = 0;
         }
         else
         {
@@ -272,10 +273,6 @@ __global__ void computeIntersections(
             intersections[path_index].materialId = geoms[hit_geom_index].materialid;
             intersections[path_index].materialType = geoms[hit_geom_index].material;
             intersections[path_index].surfaceNormal = normal;
-            if (pathSegment->remainingBounces < 1)
-            {
-                pathSegment->keepLooping = false;
-            }
         }
     }
 }
@@ -302,8 +299,6 @@ __global__ void shadeMaterial(
         ShadeableIntersection intersection = shadeableIntersections[idx];
         PathSegment* seg = &pathSegments[idx];
 
-        if (!seg->keepLooping) return;
-
         if (intersection.t > 0.0f && seg->remainingBounces > 0) // if the intersection exists...
         {
           // Set up the RNG
@@ -318,7 +313,7 @@ __global__ void shadeMaterial(
             // If the material indicates that the object was a light, "light" the ray
             if (material.emittance > 0.0f) {
                 seg->color *= (materialColor * material.emittance);
-                seg->keepLooping = false;
+                seg->remainingBounces = 0;
             }
             // Otherwise, do some pseudo-lighting computation. This is actually more
             // like what you would expect from shading in a rasterizer like OpenGL.
@@ -341,9 +336,8 @@ __global__ void shadeMaterial(
 
         }
         else {
-            seg->keepLooping = false;   // tag it as a segment that we can terminate
             intersection.materialType = NONE;
-            seg->color *= glm::vec3(0.0f);
+            seg->remainingBounces = 0;
         }
     }
 }
@@ -453,7 +447,10 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
             Utils::kernIdentifyStartEnd << <numblocksPathSegmentTracing, blockSize1d >> > (num_paths, dev_intersections, dev_materialStartIndices, dev_materialEndIndices);
             cudaMemcpy(hst_materialStartIndices, dev_materialStartIndices, sizeof(int) * MATERIAL_NUM, cudaMemcpyDeviceToHost);
             cudaMemcpy(hst_materialEndIndices, dev_materialEndIndices, sizeof(int) * MATERIAL_NUM, cudaMemcpyDeviceToHost);
-            //num_paths = hst_materialStartIndices[0];
+            
+            // we can cull NONE materials here by simply setting num_paths to their start index (since they come last)
+            // however this trick only works if there are NONE materials, hence the conditional
+            num_paths = hst_materialStartIndices[0] > 0 ? hst_materialStartIndices[0] : num_paths;
 
             for (int mat = 0; mat < MATERIAL_NUM; ++mat)
             {
@@ -497,8 +494,8 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
                     checkCUDAError("dielectric");
                     break;
                 default:
-                    std::cout << "ruh roh" << std::endl;
-                    shadeMaterial << <numblocks, blockSize1d >> > (
+                    std::cout << "ERROR: no material found at material for loop kern launch" << std::endl;
+                    PBR::kernShadeAll << <numblocks, blockSize1d >> > (
                         iter,
                         count,
                         dev_intersections + count,
@@ -511,7 +508,7 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
         }
         else
         {
-            shadeMaterial << <numblocksPathSegmentTracing, blockSize1d >> > (
+            PBR::kernShadeAll << <numblocksPathSegmentTracing, blockSize1d >> > (
                 iter,
                 num_paths,
                 dev_intersections,
@@ -543,7 +540,7 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
 
         //std::cout << num_paths << std::endl;
 
-        if (++depth > traceDepth || num_paths < 1) iterationComplete = true; // TODO: should be based off stream compaction results.
+        if (++depth > traceDepth - 1 || num_paths < 1) iterationComplete = true; // TODO: should be based off stream compaction results.
 
         if (guiData != NULL)
         {

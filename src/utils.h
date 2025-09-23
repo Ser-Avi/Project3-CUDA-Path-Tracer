@@ -44,6 +44,24 @@ namespace Utils
 
     __global__ void kernIdentifyStartEnd(int N, ShadeableIntersection* intSects,
         int* materialStartIndices, int* materialEndIndices);
+
+    /// <summary>
+    /// Creates the basis vectors based on a given normal n.
+    /// I got this from https://graphics.pixar.com/library/OrthonormalB/paper.pdf
+    /// Can easily be used to get local->world and world->local transform matrices
+    /// </summary>
+    /// <param name="n">normal input</param>
+    /// <param name="b1">basis vec1 output</param>
+    /// <param name="b2">basis vec2 output</param>
+    /// <returns></returns>
+    DEV_INLINE void branchlessONB(const glm::vec3& n, glm::vec3& b1, glm::vec3& b2)
+    {
+        float sign = copysignf(1.0f, n.z);
+        const float a = -1.0f / (sign + n.z);
+        const float b = n.x * n.y * a;
+        b1 = glm::vec3(1.0f + sign * n.x * n.x * a, sign * b, -sign * n.x);
+        b2 = glm::vec3(b, sign + n.y * n.y * a, -n.y);
+    }
 }
 
 namespace PBR
@@ -65,8 +83,8 @@ namespace PBR
         if (idx < num_paths)
         {
             PathSegment* seg = &pathSegments[idx];
+            if (seg->remainingBounces < 1) return;
             seg->color = glm::vec3(0.);
-            seg->keepLooping = false;
             seg->remainingBounces = 0;
         }
     }
@@ -83,9 +101,9 @@ namespace PBR
             ShadeableIntersection intersection = shadeableIntersections[idx];
             PathSegment* seg = &pathSegments[idx];
 
-            if (!seg->keepLooping) return;
+            //if (!seg->keepLooping) return;
 
-            if (intersection.t > 0.0f) // if the intersection exists...
+            if (intersection.t > 0.0f && seg->remainingBounces > 0) // if the intersection exists...
             {
                 // Set up the RNG
                 thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, seg->remainingBounces);
@@ -98,15 +116,14 @@ namespace PBR
                 //// If the material indicates that the object was a light, "light" the ray
                 if (material.emittance > 0.0f) {
                     seg->color *= (materialColor * material.emittance);
-                    seg->keepLooping = false;
-                    printf("EMITTANCE IN MAH DIFFUSE???? %d \n", idx);
+                    seg->remainingBounces = 0;
+                    printf("EMITTANCE IN DIFFUSE???? %d \n", idx);
                     return;
                 }
                 // Otherwise, do some pseudo-lighting computation. This is actually more
                 // like what you would expect from shading in a rasterizer like OpenGL.
                 else {
                     glm::vec3 wi = calculateRandomDirectionInHemisphere(intersection.surfaceNormal, rng);
-                    //seg->color *= glm::clamp(materialColor * abs(dot(-wi, intersection.surfaceNormal)), 0.0f, 1.0f);
                     seg->color *= materialColor;
 
                     // then we bounce a new ray
@@ -122,13 +139,7 @@ namespace PBR
 
             }
             else {
-                //seg->keepLooping = false;   // tag it as a segment that we can terminate
-                //seg->remainingBounces = 0;
-                seg->color *= glm::vec3(0.0f);
-            }
-            if (seg->remainingBounces < 1)
-            {
-                seg->keepLooping = false;
+                seg->remainingBounces = 0;          // tag it as a segment that we can terminate
             }
         }
     }
@@ -144,20 +155,16 @@ namespace PBR
         {
             ShadeableIntersection intersection = shadeableIntersections[idx];
             PathSegment* seg = &pathSegments[idx];
-            if (!seg->keepLooping) return;
-            if (intersection.t > 0.0) // if the intersection exists...
+            if (intersection.t > 0.0 && seg->remainingBounces > 0) // if the intersection exists...
             {
                 Material material = materials[intersection.materialId];
                 glm::vec3 materialColor = material.color;
                 seg->color *= (materialColor * material.emittance);
-                seg->keepLooping = false;
                 seg->remainingBounces = 0;
             }
             else
             {
-                seg->keepLooping = false;   // tag it as a segment that we can terminate
-                seg->remainingBounces = 0;
-                //seg->color *= glm::vec3(0.0f);
+                seg->remainingBounces = 0;  // tag it as a segment that we can terminate
             }
         }
     }
@@ -175,6 +182,8 @@ namespace PBR
             PathSegment* seg = &pathSegments[idx];
             Material material = materials[intersection.materialId];
             glm::vec3 materialColor = material.color;
+
+            if (seg->remainingBounces < 1) return;
 
             // Proper specular reflection
             glm::vec3 wi = glm::reflect(seg->ray.direction, intersection.surfaceNormal);
@@ -204,6 +213,8 @@ namespace PBR
             Material material = materials[intersection.materialId];
             glm::vec3 materialColor = material.color;
 
+            if (seg->remainingBounces < 1) return;
+
             glm::vec3 nor = intersection.surfaceNormal;
 
             // either air or material -> not supporting two dielectrics
@@ -224,6 +235,7 @@ namespace PBR
 
             // glm::refract returns vec3(0) when total internal reflection occurs
             if (length(wi) < 0.01) {
+                // To kill or reflect? That is the question
                 /*seg->color *= glm::vec3(0.);
                 seg->keepLooping = false;*/
                 wi = glm::reflect(seg->ray.direction, normal);
@@ -232,12 +244,18 @@ namespace PBR
             seg->remainingBounces--;
             float offsetDir = entering ? -1.0f : 1.0f;
             glm::vec3 p = seg->ray.origin + seg->ray.direction * intersection.t;
-            seg->ray.origin = p + normal * EPSILON * 5.f * offsetDir;
+            seg->ray.origin = p + wi * EPSILON * 5.f;   // this 5 is creating an inside band but without it my rays can get really stuck :(
             seg->ray.direction = wi;
 
             seg->color *= materialColor;
         }
     }
+
+    __global__ void kernShadeAll(int iter,
+        int num_paths,
+        ShadeableIntersection* shadeableIntersections,
+        PathSegment* pathSegments,
+        Material* materials);
 
     __global__ void kernShadeNosect(int iter,
         int num_paths,
@@ -277,17 +295,4 @@ namespace PBR
 
     __device__ glm::vec3 FresnelDielectricEval(float cosThetaI, float ior);
 }
-
-//namespace StreamCompaction {
-//    __global__ void kernMapToBoolean(int n, int* bools, const PathSegment* idata, std::function<bool(const PathSegment&)> predicate);
-//
-//    __global__ void kernScatter(int n, PathSegment* odata,
-//        const PathSegment* idata, const int* bools, const int* indices);
-//
-//    __global__ void kernUpSweep(int n, int* data, int d);
-//    __global__ void kernDownSweep(int n, int* data, int d);
-//    __global__ void kernChangeOneVal(int index, int* data, int val);
-//
-//    int compact(int n, PathSegment* odata, const PathSegment* idata, std::function<bool(const PathSegment&)> predicate);
-//}
 

@@ -89,7 +89,6 @@ struct PathSegment
     glm::vec3 thp;
     int pixelIndex;
     int remainingBounces;
-    bool keepLooping;
 };
 
 // Use with a corresponding PathSegment to do:
