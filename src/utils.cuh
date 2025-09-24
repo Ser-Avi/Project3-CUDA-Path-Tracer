@@ -45,6 +45,8 @@ namespace Utils
     __global__ void kernIdentifyStartEnd(int N, ShadeableIntersection* intSects,
         int* materialStartIndices, int* materialEndIndices);
 
+    __device__ glm::vec4 sampleTexture(cudaTextureObject_t tex, glm::vec2 uv);
+
     /// <summary>
     /// Creates the basis vectors based on a given normal n.
     /// I got this from https://graphics.pixar.com/library/OrthonormalB/paper.pdf
@@ -62,6 +64,8 @@ namespace Utils
         b1 = glm::vec3(1.0f + sign * n.x * n.x * a, sign * b, -sign * n.x);
         b2 = glm::vec3(b, sign + n.y * n.y * a, -n.y);
     }
+
+
 }
 
 namespace PBR
@@ -216,37 +220,71 @@ namespace PBR
             if (seg->remainingBounces < 1) return;
 
             glm::vec3 nor = intersection.surfaceNormal;
+            glm::vec3 wo = glm::normalize(-seg->ray.direction);
+
+            float cosThetaI = glm::dot(nor, wo);
+            bool entering = cosThetaI > 0.f;
 
             // either air or material -> not supporting two dielectrics
             float etaA = 1.;
             float etaB = material.indexOfRefraction;
 
-            glm::vec3 wi;
-            // checking if ray is coming from inside the house O.O
-            bool entering = glm::dot(-seg->ray.direction, nor) > 0.;
-            // setting values appropriately
-            float etaI = entering ? etaA : etaB;
-            float etaT = entering ? etaB : etaA;
-            // Computing ray direction
-            glm::vec3 normal = -glm::faceforward(nor, -seg->ray.direction, nor); //entering ? nor : -nor;// -glm::faceforward(nor, -seg->ray.direction, nor);
-            float etaRatio = etaI / etaT;
+            float eta = etaA / etaB;
 
-            wi = glm::refract(-seg->ray.direction, normal, etaRatio);
+            float iorRatio = entering ? eta : 1.f / eta;
+
+            glm::vec3 wi = glm::refract(-wo, (entering) ? nor : -nor, iorRatio);
 
             // glm::refract returns vec3(0) when total internal reflection occurs
             if (length(wi) < 0.01) {
                 // To kill or reflect? That is the question
-                /*seg->color *= glm::vec3(0.);
-                seg->keepLooping = false;*/
-                wi = glm::reflect(seg->ray.direction, normal);
+                seg->color *= glm::vec3(0.);
+                seg->remainingBounces = 0;
+                return;
             }
 
             seg->remainingBounces--;
             glm::vec3 p = seg->ray.origin + seg->ray.direction * intersection.t;
-            seg->ray.origin = p + wi * EPSILON * 5.f;   // this 5 is creating an inside band but without it my rays can get really stuck :(
+            seg->ray.origin = p + wi * EPSILON * 500.f;   // this 5 is creating an inside band but without it my rays can get really stuck :(
             seg->ray.direction = wi;
-
             seg->color *= materialColor;
+        }
+    }
+
+    DEV_INLINE void inlineShadePBR(int iter,
+        int num_paths,
+        ShadeableIntersection* shadeableIntersections,
+        PathSegment* pathSegments,
+        Material* materials)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (idx < num_paths)
+        {
+            PathSegment* seg = &pathSegments[idx];
+            if (seg->remainingBounces < 1) return;
+            seg->remainingBounces = 0;
+            ShadeableIntersection* intSect = &shadeableIntersections[idx];
+            glm::vec2 uv = intSect->uv;
+            if (materials[intSect->materialId].base_color_tex > -1)
+            {
+                glm::vec4 texel = Utils::sampleTexture(materials[intSect->materialId].base_color_tex, uv);
+                seg->color = glm::vec3(texel.x, texel.y, texel.z);
+                //seg->color = glm::vec3(uv.x, uv.y, 1.0);
+            }
+            else
+            {
+                seg->color = (intSect->surfaceNormal + glm::vec3(1.)) * 0.5f;
+            }
+
+            thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, seg->remainingBounces);
+            thrust::uniform_real_distribution<float> u01(0, 1);
+            glm::vec3 wi = calculateRandomDirectionInHemisphere(intSect->surfaceNormal, rng);
+
+            // then we bounce a new ray
+            seg->remainingBounces--;
+            glm::vec3 p = seg->ray.origin + seg->ray.direction * intSect->t;
+            seg->ray.origin = p + intSect->surfaceNormal * EPSILON;
+            seg->ray.direction = wi;
         }
     }
 
@@ -287,6 +325,12 @@ namespace PBR
         Material* materials);
 
     __global__ void kernShadeDielectric(int iter,
+        int num_paths,
+        ShadeableIntersection* shadeableIntersections,
+        PathSegment* pathSegments,
+        Material* materials);
+
+    __global__ void kernShadePBR(int iter,
         int num_paths,
         ShadeableIntersection* shadeableIntersections,
         PathSegment* pathSegments,

@@ -17,6 +17,8 @@ using json = nlohmann::json;
 
 Scene::Scene(string filename)
 {
+    gltfManager = GLTFManager();
+
     cout << "Reading scene from " << filename << " ..." << endl;
     cout << " " << endl;
     auto ext = filename.substr(filename.find_last_of('.'));
@@ -24,26 +26,6 @@ Scene::Scene(string filename)
     {
         loadFromJSON(filename);
         //return;
-    }
-    else if (ext == ".gltf")
-    {
-        GLTFLoader loader;
-        if (!loader.load("../scenes/box.gltf")) {
-            std::cerr << "Failed to load GLTF file" << std::endl;
-            return;
-        }
-
-        // Upload to GPU
-        GLTFManager gpu_manager;
-        if (!gpu_manager.uploadToGPU(loader)) {
-            std::cerr << "Failed to upload to GPU" << std::endl;
-            return;
-        }
-
-        std::cout << "GLTF scene loaded successfully!" << std::endl;
-        std::cout << "Triangles: " << gpu_manager.getNumTriangles() << std::endl;
-        std::cout << "Materials: " << gpu_manager.getNumMaterials() << std::endl;
-        std::cout << "Textures: " << gpu_manager.getNumTextures() << std::endl;
     }
     else
     {
@@ -161,4 +143,32 @@ void Scene::loadFromJSON(const std::string& jsonName)
     int arraylen = camera.resolution.x * camera.resolution.y;
     state.image.resize(arraylen);
     std::fill(state.image.begin(), state.image.end(), glm::vec3());
+
+    gltfName = data.value("GLTF", "");
+    std::cout << gltfName << std::endl;
+}
+
+void Scene::loadFromGLTF()
+{
+    GLTFLoader loader;
+    if (!loader.load(gltfName)) {
+        std::cerr << "Failed to load GLTF file" << std::endl;
+        return;
+    }
+    
+    // Upload to GPU
+    if (!gltfManager.uploadToGPU(loader)) {
+        std::cerr << "Failed to upload to GPU" << std::endl;
+        return;
+    }
+
+    std::cout << "GLTF scene loaded successfully!" << std::endl;
+    std::cout << "Triangles: " << gltfManager.getNumTriangles() << std::endl;
+    std::cout << "Materials: " << gltfManager.getNumMaterials() << std::endl;
+    std::cout << "Textures: " << gltfManager.getNumTextures() << std::endl;
+}
+
+void Scene::initGPU()
+{
+
 }

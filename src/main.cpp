@@ -445,7 +445,6 @@ void runCuda()
         cam.position = cameraPosition;
         cameraPosition += cam.lookAt;
         cam.position = cameraPosition;
-        camchanged = false;
     }
 
     // Map OpenGL buffer object for writing from CUDA on a single GPU
@@ -453,8 +452,9 @@ void runCuda()
 
     if (iteration == 0)
     {
-        pathtraceFree();
+        pathtraceFree(camchanged);
         pathtraceInit(scene);
+        if (camchanged) camchanged = false;
     }
 
     if (iteration < renderState->iterations)
@@ -473,7 +473,7 @@ void runCuda()
     else
     {
         saveImage();
-        pathtraceFree();
+        pathtraceFree(camchanged);
         cudaDeviceReset();
         exit(EXIT_SUCCESS);
     }

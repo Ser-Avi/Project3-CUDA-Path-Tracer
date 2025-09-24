@@ -8,11 +8,20 @@
 #include <vector>
 
 #define BACKGROUND_COLOR (glm::vec3(0.0f))
+#define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
 
 enum GeomType
 {
     SPHERE,
-    CUBE
+    CUBE,
+    TRIANGLE
+};
+
+struct Triangle {
+    glm::vec3 v0, v1, v2;
+    glm::vec3 n0, n1, n2;
+    glm::vec2 uv0, uv1, uv2;
+    int material_id;
 };
 
 struct Ray
@@ -29,7 +38,7 @@ enum MaterialType
     SPECULAR_REFL,
     SPECULAR_TRANS,
     DIELECTRIC,
-    MICROFACET
+    PBR_MAT
 };
 
 struct Geom
@@ -59,6 +68,11 @@ struct Material
     float emittance;
     float roughness;
     float metallic;
+    glm::vec3 emissive_factor;
+    cudaTextureObject_t base_color_tex;
+    cudaTextureObject_t metallic_roughness_tex;
+    cudaTextureObject_t normal_tex;
+    cudaTextureObject_t emissive_tex;
 };
 
 struct Camera
@@ -98,6 +112,7 @@ struct ShadeableIntersection
 {
   float t;
   glm::vec3 surfaceNormal;
+  glm::vec2 uv;
   int materialId;
   MaterialType materialType;
 };

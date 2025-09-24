@@ -1,4 +1,4 @@
-#include "utils.h"
+#include "utils.cuh"
 
 namespace Utils
 {
@@ -14,21 +14,27 @@ namespace Utils
         int index = (blockIdx.x * blockDim.x) + threadIdx.x;
         if (index > N - 1) return;
         MaterialType thisMat = intSects[index].materialType;
+        if (index == 0)
+        {
+            materialStartIndices[thisMat] = index;
+            return;
+        }
         MaterialType prevMat = intSects[index - 1].materialType;
-
         if (index > 0 && index < N - 1 && thisMat != prevMat)
         {
             materialStartIndices[thisMat] = index;
             materialEndIndices[prevMat] = index - 1;
         }
-        else if (index == 0)
-        {
-            materialStartIndices[thisMat] = index;
-        }
         else if (index == N - 1)
         {
             materialEndIndices[thisMat] = index;
         }
+    }
+
+    __device__ glm::vec4 sampleTexture(cudaTextureObject_t tex, glm::vec2 uv) {
+        if (tex == 0) return glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+        float4 text = tex2D<float4>(tex, uv.x, uv.y);
+        return glm::vec4(text.x, text.y, text.z, text.w);
     }
 }
 
@@ -86,7 +92,7 @@ namespace PBR
                 seg->color *= 2.f * (glm::vec3(1.f) - FresnelDielectricEval(cosThetaI, ior));
             }
             break;
-        case MICROFACET:
+        case PBR_MAT:
             // Not yet handled
             break;
         default:
@@ -171,6 +177,15 @@ namespace PBR
                 seg->color *= 2.f * (glm::vec3(1.f) - FresnelDielectricEval(cosThetaI, ior));
             }
         }
+    }
+
+    __global__ void kernShadePBR(int iter,
+        int num_paths,
+        ShadeableIntersection* shadeableIntersections,
+        PathSegment* pathSegments,
+        Material* materials)
+    {
+        inlineShadePBR(iter, num_paths, shadeableIntersections, pathSegments, materials);
     }
 
     __device__ glm::vec3 FresnelDielectricEval(float cosThetaI, float ior)

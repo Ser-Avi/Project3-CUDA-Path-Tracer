@@ -22,7 +22,6 @@
 #define MATERIAL_NUM 7
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
-#define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
 void checkCUDAErrorFn(const char* msg, const char* file, int line)
 {
 #if ERRORCHECK
@@ -139,19 +138,28 @@ void pathtraceInit(Scene* scene)
     cudaMemset(dev_materialStartIndices, 0, sizeof(int) * MATERIAL_NUM);
     cudaMalloc(&dev_materialEndIndices, sizeof(int) * MATERIAL_NUM);
     cudaMemset(dev_materialEndIndices, 0, sizeof(int) * MATERIAL_NUM);
+
+    if (scene->gltfManager.getNumTriangles() < 1)
+    {
+        scene->loadFromGLTF();
+    }
     checkCUDAError("pathtraceInit");
 }
 
-void pathtraceFree()
+void pathtraceFree(bool camChange)
 {
     cudaFree(dev_image);  // no-op if dev_image is null
     cudaFree(dev_paths);
     cudaFree(dev_geoms);
-    cudaFree(dev_materials);
     cudaFree(dev_intersections);
     // TODO: clean up any extra device memory you created
     cudaFree(dev_materialStartIndices);
     cudaFree(dev_materialEndIndices);
+    cudaFree(dev_materials);
+    if (hst_scene && !camChange)
+    {
+        hst_scene->gltfManager.cleanup();
+    }
     checkCUDAError("pathtraceFree");
 }
 
@@ -212,10 +220,10 @@ __global__ void computeIntersections(
     PathSegment* pathSegments,
     Geom* geoms,
     int geoms_size,
-    ShadeableIntersection* intersections)
+    ShadeableIntersection* intersections,
+    Triangle* triangles, int num_triangles)
 {
     int path_index = blockIdx.x * blockDim.x + threadIdx.x;
-
     if (path_index < num_paths)
     {
         PathSegment* pathSegment = &pathSegments[path_index];
@@ -228,6 +236,7 @@ __global__ void computeIntersections(
         float t_min = FLT_MAX;
         int hit_geom_index = -1;
         bool outside = true;
+        bool triangle = false;
 
         glm::vec3 tmp_intersect;
         glm::vec3 tmp_normal;
@@ -259,6 +268,23 @@ __global__ void computeIntersections(
             }
         }
 
+        // next we check for triangles
+        glm::vec2 uv; // tag uv to negative so we can check if we hit a triangle or not
+        glm::vec2 tmp_uv;
+        for (int i = 0; i < num_triangles; ++i)
+        {
+            t = triangleIntersectionTest(triangles[i], pathSegment->ray, tmp_intersect, tmp_normal, tmp_uv, outside);
+            if (t > 0.0f && t_min > t)
+            {
+                t_min = t;
+                hit_geom_index = i;
+                intersect_point = tmp_intersect;
+                normal = tmp_normal;
+                uv = tmp_uv;
+                triangle = true;
+            }
+        }
+
         if (hit_geom_index == -1)
         {
             intersections[path_index].t = -1.0f;
@@ -270,9 +296,19 @@ __global__ void computeIntersections(
         {
             // The ray hits something
             intersections[path_index].t = t_min;
-            intersections[path_index].materialId = geoms[hit_geom_index].materialid;
-            intersections[path_index].materialType = geoms[hit_geom_index].material;
             intersections[path_index].surfaceNormal = normal;
+            // if we didn't hit triangle:
+            if (!triangle)
+            {
+                intersections[path_index].materialId = geoms[hit_geom_index].materialid;
+                intersections[path_index].materialType = geoms[hit_geom_index].material;
+            }
+            else
+            {
+                intersections[path_index].materialType = PBR_MAT;
+                intersections[path_index].materialId = triangles[hit_geom_index].material_id;
+                intersections[path_index].uv = uv;
+            }
         }
     }
 }
@@ -360,13 +396,23 @@ __global__ void finalGather(int nPaths, glm::vec3* image, PathSegment* iteration
  */
 void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort, bool isStochastic)
 {
+    //std::cout << "PT start" << std::endl;
     const int traceDepth = hst_scene->state.traceDepth;
     const Camera& cam = hst_scene->state.camera;
     const int pixelcount = cam.resolution.x * cam.resolution.y;
 
     int* hst_materialStartIndices = new (std::nothrow) int[MATERIAL_NUM];
     int* hst_materialEndIndices = new (std::nothrow) int[MATERIAL_NUM];
-    
+
+    Triangle* dev_triangles = hst_scene->gltfManager.getTrianglesDevice();
+    Material* dev_PBRmaterials = hst_scene->gltfManager.getPBRMaterialsDevice();
+    int triangle_num = hst_scene->gltfManager.getNumTriangles();
+    //std::cout << triangle_num << std::endl;
+    checkCUDAError("setup");
+    cudaError_t err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+        std::cerr << "CUDA Kernel Error: " << cudaGetErrorString(err) << std::endl;
+    }
 
     // 2D block for generating ray from camera
     const dim3 blockSize2d(8, 8);
@@ -407,13 +453,17 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
     //   for you.
 
     // TODO: perform one iteration of path tracing
-
     generateRayFromCamera<<<blocksPerGrid2d, blockSize2d>>>(cam, iter, traceDepth, dev_paths, isStochastic);
+    cudaDeviceSynchronize();
     checkCUDAError("generate camera ray");
 
     int depth = 0;
     PathSegment* dev_path_end = dev_paths + pixelcount;
     int num_paths = dev_path_end - dev_paths;
+
+    if (num_paths != pixelcount) {
+        printf("Pointer arithmetic error!\n");
+    }
 
     // --- PathSegment Tracing Stage ---
     // Shoot ray into scene, bounce between objects, push shading chunks
@@ -427,16 +477,28 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
 
         // tracing
         dim3 numblocksPathSegmentTracing = (num_paths + blockSize1d - 1) / blockSize1d;
+
+        err = cudaDeviceSynchronize();
+        if (err != cudaSuccess) {
+            std::cerr << "CUDA Kernel Error2: " << cudaGetErrorString(err) << std::endl;
+            exit(1);
+        }
+
         computeIntersections<<<numblocksPathSegmentTracing, blockSize1d>>> (
             depth,
             num_paths,
             dev_paths,
             dev_geoms,
             hst_scene->geoms.size(),
-            dev_intersections
+            dev_intersections,
+            dev_triangles,
+            triangle_num
         );
         checkCUDAError("trace one bounce");
-        cudaDeviceSynchronize();
+        err = cudaDeviceSynchronize();
+        if (err != cudaSuccess) {
+            std::cerr << "CUDA Kernel Error: " << cudaGetErrorString(err) << std::endl;
+        }
 
         if (isMatSort)
         {
@@ -457,7 +519,7 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
                 int start = hst_materialStartIndices[mat];
                 int end = hst_materialEndIndices[mat];
 
-                //printf("Mat: %d, Start: %d, End: %d\n", mat, start, end);
+                printf("Mat: %d, Start: %d, End: %d\n", mat, start, end);
 
                 if (start < 0 || end < start)
                 {
@@ -493,8 +555,12 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
                     PBR::kernShadeDielectric<<<numblocks, blockSize1d >> > (iter, count, dev_intersections + start, dev_paths + start, dev_materials);
                     checkCUDAError("dielectric");
                     break;
+                case PBR_MAT:
+                    PBR::kernShadePBR << <numblocks, blockSize1d >> > (iter, num_paths, dev_intersections + start, dev_paths + start, dev_PBRmaterials);
+                    checkCUDAError("PBR");
+                    break;
                 default:
-                    std::cout << "ERROR: no material found at material for loop kern launch" << std::endl;
+                    std::cout << "ERROR: no material found at loop kern launch" << std::endl;
                     PBR::kernShadeAll << <numblocks, blockSize1d >> > (
                         iter,
                         count,

@@ -110,6 +110,8 @@ GLTFLoader::MaterialData GLTFLoader::processMaterial(const tinygltf::Material& m
 
     // Texture indices
     material.base_color_tex = mat.pbrMetallicRoughness.baseColorTexture.index;
+    std::cout << "  Base color texture index: " << mat.pbrMetallicRoughness.baseColorTexture.index << std::endl;
+    std::cout << "  Textures array size: " << model.textures.size() << std::endl;
     material.metallic_roughness_tex = mat.pbrMetallicRoughness.metallicRoughnessTexture.index;
     material.normal_tex = mat.normalTexture.index;
     material.emissive_tex = mat.emissiveTexture.index;
@@ -317,9 +319,11 @@ bool GLTFManager::uploadToGPU(const GLTFLoader& loader) {
     uploadMaterials(loader.getMaterials(), loader.getTextureObjects());
 
     std::cout << "Uploaded to GPU: " << num_triangles << " triangles, "
-        << num_materials << " materials, "
+        << num_PBRmaterials << " materials, "
         << num_textures << " textures" << std::endl;
 
+    // delete loader as we will no longer need it
+    loader.~GLTFLoader();
     return true;
 }
 
@@ -328,9 +332,9 @@ void GLTFManager::cleanup() {
         cudaFree(dev_triangles);
         dev_triangles = nullptr;
     }
-    if (dev_materials) {
-        cudaFree(dev_materials);
-        dev_materials = nullptr;
+    if (dev_PBRmaterials) {
+        cudaFree(dev_PBRmaterials);
+        dev_PBRmaterials = nullptr;
     }
     if (dev_texture_objects) {
         cudaFree(dev_texture_objects);
@@ -338,7 +342,7 @@ void GLTFManager::cleanup() {
     }
 
     num_triangles = 0;
-    num_materials = 0;
+    num_PBRmaterials = 0;
     num_textures = 0;
 }
 
@@ -398,11 +402,10 @@ void GLTFManager::uploadTriangles(const std::vector<GLTFLoader::MeshData>& meshe
 
 void GLTFManager::uploadMaterials(const std::vector<GLTFLoader::MaterialData>& materials,
     const std::vector<cudaTextureObject_t>& texture_objects) {
-    std::vector<PBRMaterial> host_materials;
-
+    std::vector<Material> host_materials;
     for (const auto& mat : materials) {
-        PBRMaterial cuda_mat;
-        cuda_mat.base_color = glm::vec3(mat.base_color[0], mat.base_color[1], mat.base_color[2]);
+        Material cuda_mat;
+        cuda_mat.color = glm::vec3(mat.base_color[0], mat.base_color[1], mat.base_color[2]);
         cuda_mat.metallic = mat.metallic;
         cuda_mat.roughness = mat.roughness;
         cuda_mat.emissive_factor = glm::vec3(mat.emissive_factor[0], mat.emissive_factor[1], mat.emissive_factor[2]);
@@ -420,11 +423,12 @@ void GLTFManager::uploadMaterials(const std::vector<GLTFLoader::MaterialData>& m
         host_materials.push_back(cuda_mat);
     }
 
-    num_materials = host_materials.size();
-    if (num_materials > 0) {
-        cudaMalloc(&dev_materials, num_materials * sizeof(PBRMaterial));
-        cudaMemcpy(dev_materials, host_materials.data(),
-            num_materials * sizeof(PBRMaterial), cudaMemcpyHostToDevice);
+    num_PBRmaterials = host_materials.size();
+    if (num_PBRmaterials > 0) {
+        cudaMalloc(&dev_PBRmaterials, num_PBRmaterials * sizeof(Material));
+        cudaMemcpy(dev_PBRmaterials, host_materials.data(),
+            num_PBRmaterials * sizeof(Material), cudaMemcpyHostToDevice);
+        
     }
 }
 

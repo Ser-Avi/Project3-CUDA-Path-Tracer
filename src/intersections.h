@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sceneStructs.h"
+#include "utilities.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtx/intersect.hpp>
@@ -73,8 +74,9 @@ __host__ __device__ float sphereIntersectionTest(
     bool& outside);
 
 __host__ __device__ float triangleIntersectionTest(
-    Geom triangle,
+    Triangle triangle,
     Ray r,
     glm::vec3& intersectionPoint,
     glm::vec3& normal,
+    glm::vec2& uv,
     bool& outside);

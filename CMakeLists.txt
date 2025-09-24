@@ -58,7 +58,7 @@ set(headers
     src/scene.h
     src/sceneStructs.h
     src/utilities.h
-    src/utils.h
+    src/utils.cuh
     src/tiny_gltf.h
     src/stb_image.h
     src/stb_image_write.h

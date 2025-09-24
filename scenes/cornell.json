@@ -31,6 +31,7 @@
             "REFLECTIONODDS":0.5
         }
     },
+    "GLTF": "../scenes/BoxTextured.gltf",
     "Camera":
     {
         "RES":[800,800],

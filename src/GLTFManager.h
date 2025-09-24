@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tiny_gltf.h"
+#include "sceneStructs.h"
 #include <vector>
 #include <string>
 #include <iostream>
@@ -8,24 +9,6 @@
 #include <cuda_runtime_api.h>
 #include "glm/common.hpp"
 #include "glm/glm.hpp"
-
-struct PBRMaterial {
-    glm::vec3 base_color;
-    float metallic;
-    float roughness;
-    glm::vec3 emissive_factor;
-    cudaTextureObject_t base_color_tex;
-    cudaTextureObject_t metallic_roughness_tex;
-    cudaTextureObject_t normal_tex;
-    cudaTextureObject_t emissive_tex;
-};
-
-struct Triangle {
-    glm::vec3 v0, v1, v2;
-    glm::vec3 n0, n1, n2;
-    glm::vec2 uv0, uv1, uv2;
-    int material_id;
-};
 
 class GLTFLoader {
 public:
@@ -96,11 +79,11 @@ public:
 
     // Device data accessors
     Triangle* getTrianglesDevice() const { return dev_triangles; }
-    PBRMaterial* getMaterialsDevice() const { return dev_materials; }
+    Material* getPBRMaterialsDevice() const { return dev_PBRmaterials; }
     cudaTextureObject_t* getTextureObjectsDevice() const { return dev_texture_objects; }
 
     int getNumTriangles() const { return num_triangles; }
-    int getNumMaterials() const { return num_materials; }
+    int getNumMaterials() const { return num_PBRmaterials; }
     int getNumTextures() const { return num_textures; }
 
 private:
@@ -111,19 +94,10 @@ private:
 
     // Device pointers
     Triangle* dev_triangles = nullptr;
-    PBRMaterial* dev_materials = nullptr;
+    Material* dev_PBRmaterials = nullptr;
     cudaTextureObject_t* dev_texture_objects = nullptr;
 
     int num_triangles = 0;
-    int num_materials = 0;
+    int num_PBRmaterials = 0;
     int num_textures = 0;
 };
-
-// CUDA kernel wrapper functions
-extern "C" {
-    void launchPathTracerKernel(dim3 gridDim, dim3 blockDim,
-        Triangle* triangles, int num_triangles,
-        PBRMaterial* materials,
-        cudaTextureObject_t* texture_objects,
-        float* output_image, int width, int height);
-}
