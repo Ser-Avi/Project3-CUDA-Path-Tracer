@@ -1,5 +1,118 @@
 #include "GLTFManager.h"
 
+
+TextureLoader::TextureLoader() = default;
+
+TextureLoader::~TextureLoader() {
+    cleanup();
+}
+
+cudaTextureObject_t TextureLoader::loadTexture(const std::string& filename) {
+    // Check cache first
+    auto it = texture_cache.find(filename);
+    if (it != texture_cache.end()) {
+        return it->second;
+    }
+
+    std::cout << "Loading texture: " << filename << std::endl;
+
+    // Load PNG using stb_image
+    int width, height, channels;
+    unsigned char* data = stbi_load(filename.c_str(), &width, &height, &channels, 4); // Force 4 channels
+
+    if (!data) {
+        std::cerr << "Failed to load texture: " << filename << std::endl;
+        return 0;
+    }
+
+    std::cout << "Loaded: " << width << "x" << height << ", channels: " << channels << std::endl;
+
+    // Create CUDA texture
+    cudaTextureObject_t tex_obj = createTextureFromData(data, width, height, 4);
+
+    // Free CPU data
+    stbi_image_free(data);
+
+    if (tex_obj != 0) {
+        texture_cache[filename] = tex_obj;
+        std::cout << "Created CUDA texture object: " << tex_obj << std::endl;
+    }
+
+    return tex_obj;
+}
+
+cudaTextureObject_t TextureLoader::getTexture(const std::string& filename) {
+    return loadTexture(filename); // Load if not cached
+}
+
+cudaTextureObject_t TextureLoader::createTextureFromData(const unsigned char* data,
+    int width, int height, int channels) {
+    cudaTextureObject_t tex_obj = 0;
+    cudaArray_t cu_array = nullptr;
+
+    // Create channel description
+    cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc<uchar4>();
+
+    // Create CUDA array
+    cudaError_t err = cudaMallocArray(&cu_array, &channel_desc, width, height);
+    if (err != cudaSuccess) {
+        std::cerr << "Failed to allocate CUDA array: " << cudaGetErrorString(err) << std::endl;
+        return 0;
+    }
+
+    // Copy data to array
+    size_t pitch = width * channels * sizeof(unsigned char);
+    err = cudaMemcpy2DToArray(cu_array, 0, 0, data, pitch,
+        width * channels * sizeof(unsigned char), height,
+        cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) {
+        std::cerr << "Failed to copy texture data: " << cudaGetErrorString(err) << std::endl;
+        cudaFreeArray(cu_array);
+        return 0;
+    }
+
+    // Create resource description
+    cudaResourceDesc res_desc = {};
+    res_desc.resType = cudaResourceTypeArray;
+    res_desc.res.array.array = cu_array;
+
+    // Create texture description
+    cudaTextureDesc tex_desc = {};
+    tex_desc.addressMode[0] = cudaAddressModeWrap;
+    tex_desc.addressMode[1] = cudaAddressModeWrap;
+    tex_desc.filterMode = cudaFilterModeLinear;
+    tex_desc.readMode = cudaReadModeNormalizedFloat; // Convert to [0,1]
+    tex_desc.normalizedCoords = 1;
+    tex_desc.maxAnisotropy = 1;
+
+    // Create texture object
+    err = cudaCreateTextureObject(&tex_obj, &res_desc, &tex_desc, nullptr);
+    if (err != cudaSuccess) {
+        std::cerr << "Failed to create texture object: " << cudaGetErrorString(err) << std::endl;
+        cudaFreeArray(cu_array);
+        return 0;
+    }
+
+    texture_arrays.push_back(cu_array);
+    return tex_obj;
+}
+
+void TextureLoader::cleanup() {
+    for (auto& pair : texture_cache) {
+        if (pair.second != 0) {
+            cudaDestroyTextureObject(pair.second);
+        }
+    }
+    texture_cache.clear();
+
+    for (auto& array : texture_arrays) {
+        if (array != nullptr) {
+            cudaFreeArray(array);
+        }
+    }
+    texture_arrays.clear();
+}
+
 GLTFLoader::GLTFLoader() = default;
 
 GLTFLoader::~GLTFLoader() {
@@ -28,47 +141,29 @@ bool GLTFLoader::load(const std::string& filename) {
         return false;
     }
 
-    if (!processModel(model)) {
+    if (!processModel(filename, model)) {
         std::cerr << "Failed to process GLTF model" << std::endl;
         return false;
     }
 
-    if (!createCUDATextures()) {
-        std::cerr << "Failed to create CUDA textures" << std::endl;
-        return false;
-    }
-
     std::cout << "Loaded GLTF: " << meshes.size() << " meshes, "
-        << materials.size() << " materials, "
-        << textures.size() << " textures" << std::endl;
+        << materials.size() << " materials, " << std::endl;
 
     return true;
 }
 
 void GLTFLoader::clear() {
-    // Cleanup CUDA textures
-    for (auto& tex_obj : texture_objects) {
-        if (tex_obj != 0) {
-            cudaDestroyTextureObject(tex_obj);
-        }
-    }
-    for (auto& array : texture_arrays) {
-        if (array != nullptr) {
-            cudaFreeArray(array);
-        }
-    }
 
-    texture_objects.clear();
-    texture_arrays.clear();
     meshes.clear();
     materials.clear();
-    textures.clear();
 }
 
-bool GLTFLoader::processModel(const tinygltf::Model& model) {
+bool GLTFLoader::processModel(const std::string& filename, const tinygltf::Model& model) {
+    // Extract directory for relative texture paths
+    std::string dir = filename.substr(0, filename.find_last_of("/\\")) + "/";
     // Process materials first
     for (const auto& mat : model.materials) {
-        materials.push_back(processMaterial(mat, model));
+        materials.push_back(processMaterial(mat, model, dir));
     }
 
     // Add default material if none exist
@@ -85,16 +180,19 @@ bool GLTFLoader::processModel(const tinygltf::Model& model) {
         }
     }
 
-    // Process textures
-    for (const auto& image : model.images) {
-        textures.push_back(processTexture(image));
+    // Print texture paths for debugging
+    for (size_t i = 0; i < materials.size(); i++) {
+        if (!materials[i].base_color_texture_path.empty()) {
+            std::cout << "Material " << i << " base color texture: "
+                << materials[i].base_color_texture_path << std::endl;
+        }
     }
 
     return true;
 }
 
 GLTFLoader::MaterialData GLTFLoader::processMaterial(const tinygltf::Material& mat,
-    const tinygltf::Model& model) {
+    const tinygltf::Model& model, const std::string& dir) {
     MaterialData material;
 
     // Base color factor
@@ -108,18 +206,16 @@ GLTFLoader::MaterialData GLTFLoader::processMaterial(const tinygltf::Material& m
     material.metallic = static_cast<float>(mat.pbrMetallicRoughness.metallicFactor);
     material.roughness = static_cast<float>(mat.pbrMetallicRoughness.roughnessFactor);
 
-    // Texture indices
-    material.base_color_tex = mat.pbrMetallicRoughness.baseColorTexture.index;
-    std::cout << "  Base color texture index: " << mat.pbrMetallicRoughness.baseColorTexture.index << std::endl;
-    std::cout << "  Textures array size: " << model.textures.size() << std::endl;
-    material.metallic_roughness_tex = mat.pbrMetallicRoughness.metallicRoughnessTexture.index;
-    material.normal_tex = mat.normalTexture.index;
-    material.emissive_tex = mat.emissiveTexture.index;
-
-    // Emissive factor
-    if (mat.emissiveFactor.size() == 3) {
-        for (int i = 0; i < 3; i++) {
-            material.emissive_factor[i] = static_cast<float>(mat.emissiveFactor[i]);
+    if (mat.pbrMetallicRoughness.baseColorTexture.index >= 0) {
+        int tex_index = mat.pbrMetallicRoughness.baseColorTexture.index;
+        if (tex_index < model.textures.size()) {
+            const auto& texture = model.textures[tex_index];
+            if (texture.source >= 0 && texture.source < model.images.size()) {
+                const auto& image = model.images[texture.source];
+                if (!image.uri.empty() && image.uri.find("data:") == std::string::npos) {
+                    material.base_color_texture_path = dir + image.uri;
+                }
+            }
         }
     }
 
@@ -183,144 +279,20 @@ void GLTFLoader::extractAttribute(const tinygltf::Primitive& primitive,
     output.assign(data, data + accessor.count * components);
 }
 
-GLTFLoader::TextureData GLTFLoader::processTexture(const tinygltf::Image& image) {
-    TextureData tex;
-    tex.width = image.width;
-    tex.height = image.height;
-    tex.channels = image.component;
-    tex.data = image.image;
-    return tex;
-}
-
-bool GLTFLoader::createCUDATextures() {
-    texture_objects.resize(textures.size(), 0);
-    texture_arrays.resize(textures.size(), nullptr);
-
-    for (size_t i = 0; i < textures.size(); i++) {
-        const auto& tex = textures[i];
-
-        if (tex.data.empty()) continue;
-
-        // Convert to RGBA format for CUDA textures
-        std::vector<unsigned char> rgba_data;
-        const unsigned char* source_data = tex.data.data();
-        int actual_channels = tex.channels;
-
-        if (tex.channels == 1) {
-            // Grayscale to RGBA
-            rgba_data.resize(tex.width * tex.height * 4);
-            for (size_t j = 0; j < tex.width * tex.height; j++) {
-                unsigned char value = tex.data[j];
-                rgba_data[j * 4] = value;
-                rgba_data[j * 4 + 1] = value;
-                rgba_data[j * 4 + 2] = value;
-                rgba_data[j * 4 + 3] = 255;
-            }
-            source_data = rgba_data.data();
-            actual_channels = 4;
-        }
-        else if (tex.channels == 3) {
-            // RGB to RGBA
-            rgba_data.resize(tex.width * tex.height * 4);
-            for (size_t j = 0; j < tex.width * tex.height; j++) {
-                rgba_data[j * 4] = tex.data[j * 3];
-                rgba_data[j * 4 + 1] = tex.data[j * 3 + 1];
-                rgba_data[j * 4 + 2] = tex.data[j * 3 + 2];
-                rgba_data[j * 4 + 3] = 255;
-            }
-            source_data = rgba_data.data();
-            actual_channels = 4;
-        }
-
-        texture_objects[i] = createTextureObject(source_data, tex.width, tex.height, actual_channels);
-        if (texture_objects[i] == 0) {
-            std::cerr << "Failed to create CUDA texture for texture " << i << std::endl;
-            return false;
-        }
-    }
-
-    return true;
-}
-
-cudaTextureObject_t GLTFLoader::createTextureObject(const unsigned char* data,
-    int width, int height, int channels) {
-    cudaTextureObject_t tex_obj = 0;
-    cudaArray_t cu_array = nullptr;
-
-    cudaChannelFormatDesc channel_desc;
-    if (channels == 4) {
-        channel_desc = cudaCreateChannelDesc<uchar4>();
-    }
-    else if (channels == 3) {
-        channel_desc = cudaCreateChannelDesc<uchar3>();
-    }
-    else if (channels == 1) {
-        channel_desc = cudaCreateChannelDesc<unsigned char>();
-    }
-    else {
-        std::cerr << "Unsupported number of channels: " << channels << std::endl;
-        return 0;
-    }
-
-    cudaError_t err = cudaMallocArray(&cu_array, &channel_desc, width, height);
-    if (err != cudaSuccess) {
-        std::cerr << "Failed to allocate CUDA array: " << cudaGetErrorString(err) << std::endl;
-        return 0;
-    }
-
-    size_t pitch = width * channels * sizeof(unsigned char);
-    err = cudaMemcpy2DToArray(cu_array, 0, 0, data, pitch,
-        width * channels * sizeof(unsigned char), height,
-        cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) {
-        std::cerr << "Failed to copy texture data: " << cudaGetErrorString(err) << std::endl;
-        cudaFreeArray(cu_array);
-        return 0;
-    }
-
-    cudaResourceDesc res_desc = {};
-    res_desc.resType = cudaResourceTypeArray;
-    res_desc.res.array.array = cu_array;
-
-    cudaTextureDesc tex_desc = {};
-    tex_desc.addressMode[0] = cudaAddressModeWrap;
-    tex_desc.addressMode[1] = cudaAddressModeWrap;
-    tex_desc.filterMode = cudaFilterModeLinear;
-    tex_desc.readMode = cudaReadModeNormalizedFloat;
-    tex_desc.normalizedCoords = 1;
-    tex_desc.maxAnisotropy = 1;
-    tex_desc.mipmapFilterMode = cudaFilterModePoint;
-    tex_desc.mipmapLevelBias = 0;
-    tex_desc.minMipmapLevelClamp = 0;
-    tex_desc.maxMipmapLevelClamp = 0;
-
-    err = cudaCreateTextureObject(&tex_obj, &res_desc, &tex_desc, nullptr);
-    if (err != cudaSuccess) {
-        std::cerr << "Failed to create texture object: " << cudaGetErrorString(err) << std::endl;
-        cudaFreeArray(cu_array);
-        return 0;
-    }
-
-    texture_arrays.push_back(cu_array);
-    return tex_obj;
-}
-
 GLTFManager::GLTFManager() = default;
 
 GLTFManager::~GLTFManager() {
     cleanup();
 }
 
-bool GLTFManager::uploadToGPU(const GLTFLoader& loader) {
+bool GLTFManager::uploadToGPU(const GLTFLoader& loader, TextureLoader& text_loader) {
     cleanup();
 
     uploadTriangles(loader.getMeshes());
-    uploadTextureObjects(loader.getTextureObjects());
-    uploadMaterials(loader.getMaterials(), loader.getTextureObjects());
+    uploadMaterials(loader.getMaterials(), text_loader);
 
     std::cout << "Uploaded to GPU: " << num_triangles << " triangles, "
-        << num_PBRmaterials << " materials, "
-        << num_textures << " textures" << std::endl;
+        << num_PBRmaterials << " materials" << std::endl;
 
     // delete loader as we will no longer need it
     loader.~GLTFLoader();
@@ -336,14 +308,9 @@ void GLTFManager::cleanup() {
         cudaFree(dev_PBRmaterials);
         dev_PBRmaterials = nullptr;
     }
-    if (dev_texture_objects) {
-        cudaFree(dev_texture_objects);
-        dev_texture_objects = nullptr;
-    }
 
     num_triangles = 0;
     num_PBRmaterials = 0;
-    num_textures = 0;
 }
 
 void GLTFManager::uploadTriangles(const std::vector<GLTFLoader::MeshData>& meshes) {
@@ -401,26 +368,49 @@ void GLTFManager::uploadTriangles(const std::vector<GLTFLoader::MeshData>& meshe
 }
 
 void GLTFManager::uploadMaterials(const std::vector<GLTFLoader::MaterialData>& materials,
-    const std::vector<cudaTextureObject_t>& texture_objects) {
+    TextureLoader& text_loader) {
     std::vector<Material> host_materials;
-    for (const auto& mat : materials) {
+    for (size_t i = 0; i < materials.size(); i++) {
+        const auto& mat = materials[i];
         Material cuda_mat;
+
         cuda_mat.color = glm::vec3(mat.base_color[0], mat.base_color[1], mat.base_color[2]);
         cuda_mat.metallic = mat.metallic;
         cuda_mat.roughness = mat.roughness;
-        cuda_mat.emissive_factor = glm::vec3(mat.emissive_factor[0], mat.emissive_factor[1], mat.emissive_factor[2]);
 
-        // Assign texture objects
-        cuda_mat.base_color_tex = (mat.base_color_tex >= 0 && mat.base_color_tex < texture_objects.size())
-            ? texture_objects[mat.base_color_tex] : 0;
-        cuda_mat.metallic_roughness_tex = (mat.metallic_roughness_tex >= 0 && mat.metallic_roughness_tex < texture_objects.size())
-            ? texture_objects[mat.metallic_roughness_tex] : 0;
-        cuda_mat.normal_tex = (mat.normal_tex >= 0 && mat.normal_tex < texture_objects.size())
-            ? texture_objects[mat.normal_tex] : 0;
-        cuda_mat.emissive_tex = (mat.emissive_tex >= 0 && mat.emissive_tex < texture_objects.size())
-            ? texture_objects[mat.emissive_tex] : 0;
+        // Load textures and get direct CUDA texture handles
+        cuda_mat.base_color_tex = text_loader.getTexture(mat.base_color_texture_path);
+        cuda_mat.metallic_roughness_tex = text_loader.getTexture(mat.metallic_roughness_texture_path);
+        cuda_mat.normal_tex = text_loader.getTexture(mat.normal_texture_path);
+        cuda_mat.emissive_tex = text_loader.getTexture(mat.emissive_texture_path);
+
+        // Debug output
+        std::cout << "Material " << i << ":" << std::endl;
+        std::cout << "  Base color: (" << cuda_mat.color.x << ", "
+            << cuda_mat.color.y << ", " << cuda_mat.color.z << ")" << std::endl;
+        std::cout << "  Metallic: " << cuda_mat.metallic << ", Roughness: " << cuda_mat.roughness << std::endl;
+        std::cout << "  Base color texture: " << (cuda_mat.base_color_tex != 0 ? "LOADED" : "MISSING")
+            << " (handle: " << cuda_mat.base_color_tex << ")" << std::endl;
+        if (!mat.base_color_texture_path.empty()) {
+            std::cout << "  Texture path: " << mat.base_color_texture_path << std::endl;
+        }
 
         host_materials.push_back(cuda_mat);
+    }
+
+    // Add a default material if no materials exist
+    if (host_materials.empty()) {
+        std::cout << "No materials found, creating default material" << std::endl;
+        Material default_mat;
+        default_mat.color = glm::vec3(0.8f, 0.8f, 0.8f);
+        default_mat.metallic = 0.0f;
+        default_mat.roughness = 0.5f;
+        default_mat.emissive_factor = glm::vec3(0.0f);
+        default_mat.base_color_tex = 0;  // No texture
+        default_mat.metallic_roughness_tex = 0;
+        default_mat.normal_tex = 0;
+        default_mat.emissive_tex = 0;
+        host_materials.push_back(default_mat);
     }
 
     num_PBRmaterials = host_materials.size();
@@ -429,14 +419,5 @@ void GLTFManager::uploadMaterials(const std::vector<GLTFLoader::MaterialData>& m
         cudaMemcpy(dev_PBRmaterials, host_materials.data(),
             num_PBRmaterials * sizeof(Material), cudaMemcpyHostToDevice);
         
-    }
-}
-
-void GLTFManager::uploadTextureObjects(const std::vector<cudaTextureObject_t>& texture_objects) {
-    num_textures = texture_objects.size();
-    if (num_textures > 0) {
-        cudaMalloc(&dev_texture_objects, num_textures * sizeof(cudaTextureObject_t));
-        cudaMemcpy(dev_texture_objects, texture_objects.data(),
-            num_textures * sizeof(cudaTextureObject_t), cudaMemcpyHostToDevice);
     }
 }

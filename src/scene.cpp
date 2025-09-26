@@ -157,7 +157,7 @@ void Scene::loadFromGLTF()
     }
     
     // Upload to GPU
-    if (!gltfManager.uploadToGPU(loader)) {
+    if (!gltfManager.uploadToGPU(loader, textLoader)) {
         std::cerr << "Failed to upload to GPU" << std::endl;
         return;
     }
@@ -165,7 +165,6 @@ void Scene::loadFromGLTF()
     std::cout << "GLTF scene loaded successfully!" << std::endl;
     std::cout << "Triangles: " << gltfManager.getNumTriangles() << std::endl;
     std::cout << "Materials: " << gltfManager.getNumMaterials() << std::endl;
-    std::cout << "Textures: " << gltfManager.getNumTextures() << std::endl;
 }
 
 void Scene::initGPU()

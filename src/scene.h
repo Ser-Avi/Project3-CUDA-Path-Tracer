@@ -13,6 +13,7 @@ public:
     void loadFromGLTF();
     std::string gltfName = "";
     GLTFManager gltfManager;
+    TextureLoader textLoader;
     std::vector<Geom> geoms;
     std::vector<Material> materials;
     RenderState state;

@@ -265,9 +265,10 @@ namespace PBR
             seg->remainingBounces = 0;
             ShadeableIntersection* intSect = &shadeableIntersections[idx];
             glm::vec2 uv = intSect->uv;
-            if (materials[intSect->materialId].base_color_tex > -1)
+            cudaTextureObject_t tex = materials[intSect->materialId].base_color_tex;// textures[materials[intSect->materialId].base_color_tex];
+            if (tex != 0)
             {
-                glm::vec4 texel = Utils::sampleTexture(materials[intSect->materialId].base_color_tex, uv);
+                glm::vec4 texel = Utils::sampleTexture(tex, uv);
                 seg->color = glm::vec3(texel.x, texel.y, texel.z);
                 //seg->color = glm::vec3(uv.x, uv.y, 1.0);
             }

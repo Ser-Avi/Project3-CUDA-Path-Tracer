@@ -1,6 +1,8 @@
 #pragma once
 
 #include "tiny_gltf.h"
+#include "stb_image.h"
+#include "stb_image_write.h"
 #include "sceneStructs.h"
 #include <vector>
 #include <string>
@@ -9,6 +11,28 @@
 #include <cuda_runtime_api.h>
 #include "glm/common.hpp"
 #include "glm/glm.hpp"
+
+class TextureLoader {
+public:
+    TextureLoader();
+    ~TextureLoader();
+
+    // Load a PNG texture and create CUDA texture object
+    cudaTextureObject_t loadTexture(const std::string& filename);
+
+    // Get texture by filename (cached)
+    cudaTextureObject_t getTexture(const std::string& filename);
+
+    // Cleanup all textures
+    void cleanup();
+
+private:
+    cudaTextureObject_t createTextureFromData(const unsigned char* data,
+        int width, int height, int channels);
+
+    std::map<std::string, cudaTextureObject_t> texture_cache;
+    std::vector<cudaArray_t> texture_arrays; // For cleanup
+};
 
 class GLTFLoader {
 public:
@@ -24,11 +48,11 @@ public:
         float base_color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
         float metallic = 0.0f;
         float roughness = 1.0f;
-        int base_color_tex = -1;
-        int metallic_roughness_tex = -1;
-        int normal_tex = -1;
-        int emissive_tex = -1;
-        float emissive_factor[3] = { 0.0f, 0.0f, 0.0f };
+        // Paths to external textures
+        std::string base_color_texture_path;
+        std::string metallic_roughness_texture_path;
+        std::string normal_texture_path;
+        std::string emissive_texture_path;
     };
 
     struct TextureData {
@@ -45,28 +69,19 @@ public:
     // Getters
     const std::vector<MeshData>& getMeshes() const { return meshes; }
     const std::vector<MaterialData>& getMaterials() const { return materials; }
-    const std::vector<TextureData>& getTextures() const { return textures; }
-    const std::vector<cudaTextureObject_t>& getTextureObjects() const { return texture_objects; }
 
 private:
-    bool processModel(const tinygltf::Model& model);
-    MaterialData processMaterial(const tinygltf::Material& mat, const tinygltf::Model& model);
+    bool processModel(const std::string& filename, const tinygltf::Model& model);
+    MaterialData processMaterial(const tinygltf::Material& mat, const tinygltf::Model& model, const std::string& dir);
     MeshData processPrimitive(const tinygltf::Primitive& primitive, const tinygltf::Model& model);
-    TextureData processTexture(const tinygltf::Image& image);
 
     void extractAttribute(const tinygltf::Primitive& primitive,
         const tinygltf::Model& model,
         const std::string& attribute,
         std::vector<float>& output, int components);
 
-    cudaTextureObject_t createTextureObject(const unsigned char* data, int width, int height, int channels);
-    bool createCUDATextures();
-
     std::vector<MeshData> meshes;
     std::vector<MaterialData> materials;
-    std::vector<TextureData> textures;
-    std::vector<cudaTextureObject_t> texture_objects;
-    std::vector<cudaArray_t> texture_arrays; // Keep track for cleanup
 };
 
 class GLTFManager {
@@ -74,30 +89,25 @@ public:
     GLTFManager();
     ~GLTFManager();
 
-    bool uploadToGPU(const GLTFLoader& loader);
+    bool uploadToGPU(const GLTFLoader& loader, TextureLoader& text_loader);
     void cleanup();
 
     // Device data accessors
     Triangle* getTrianglesDevice() const { return dev_triangles; }
     Material* getPBRMaterialsDevice() const { return dev_PBRmaterials; }
-    cudaTextureObject_t* getTextureObjectsDevice() const { return dev_texture_objects; }
 
     int getNumTriangles() const { return num_triangles; }
     int getNumMaterials() const { return num_PBRmaterials; }
-    int getNumTextures() const { return num_textures; }
 
 private:
     void uploadTriangles(const std::vector<GLTFLoader::MeshData>& meshes);
     void uploadMaterials(const std::vector<GLTFLoader::MaterialData>& materials,
-        const std::vector<cudaTextureObject_t>& texture_objects);
-    void uploadTextureObjects(const std::vector<cudaTextureObject_t>& texture_objects);
-
+        TextureLoader& text_loader);
+ 
     // Device pointers
     Triangle* dev_triangles = nullptr;
     Material* dev_PBRmaterials = nullptr;
-    cudaTextureObject_t* dev_texture_objects = nullptr;
 
     int num_triangles = 0;
     int num_PBRmaterials = 0;
-    int num_textures = 0;
 };

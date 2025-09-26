@@ -31,7 +31,7 @@
             "REFLECTIONODDS":0.5
         }
     },
-    "GLTF": "../scenes/BoxTextured.gltf",
+    "GLTF": "../scenes/CesiumMan/CesiumMan.gltf",
     "Camera":
     {
         "RES":[800,800],

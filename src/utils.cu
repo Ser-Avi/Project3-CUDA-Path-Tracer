@@ -32,7 +32,7 @@ namespace Utils
     }
 
     __device__ glm::vec4 sampleTexture(cudaTextureObject_t tex, glm::vec2 uv) {
-        if (tex == 0) return glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+        if (tex == 0) return glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
         float4 text = tex2D<float4>(tex, uv.x, uv.y);
         return glm::vec4(text.x, text.y, text.z, text.w);
     }
