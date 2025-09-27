@@ -221,7 +221,8 @@ __global__ void computeIntersections(
     Geom* geoms,
     int geoms_size,
     ShadeableIntersection* intersections,
-    Triangle* triangles, int num_triangles)
+    Triangle* triangles, int num_triangles,
+    int* triIndices, BVHNode* BVHs)
 {
     int path_index = blockIdx.x * blockDim.x + threadIdx.x;
     if (path_index < num_paths)
@@ -271,7 +272,21 @@ __global__ void computeIntersections(
         // next we check for triangles
         glm::vec2 uv; // tag uv to negative so we can check if we hit a triangle or not
         glm::vec2 tmp_uv;
-        for (int i = 0; i < num_triangles; ++i)
+        int idx;
+
+        t = IntersectBVH(pathSegment->ray, 0, BVHs, triIndices, triangles, t, tmp_intersect, tmp_normal, tmp_uv, outside, idx);
+
+        if (t > 0.0f && t_min > t)
+        {
+            t_min = t;
+            hit_geom_index = idx;
+            intersect_point = tmp_intersect;
+            normal = tmp_normal;
+            uv = tmp_uv;
+            triangle = true;
+        }
+
+       /* for (int i = 0; i < num_triangles; ++i)
         {
             t = triangleIntersectionTest(triangles[i], pathSegment->ray, tmp_intersect, tmp_normal, tmp_uv, outside);
             if (t > 0.0f && t_min > t)
@@ -283,7 +298,7 @@ __global__ void computeIntersections(
                 uv = tmp_uv;
                 triangle = true;
             }
-        }
+        }*/
 
         if (hit_geom_index == -1)
         {
@@ -406,6 +421,8 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
 
     Triangle* dev_triangles = hst_scene->gltfManager.getTrianglesDevice();
     Material* dev_PBRmaterials = hst_scene->gltfManager.getPBRMaterialsDevice();
+    int* dev_triIndices = hst_scene->gltfManager.getTriIntDevice();
+    BVHNode* dev_bvh = hst_scene->gltfManager.getBVHDevice();
     int triangle_num = hst_scene->gltfManager.getNumTriangles();
     //std::cout << triangle_num << std::endl;
     checkCUDAError("setup");
@@ -492,7 +509,9 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
             hst_scene->geoms.size(),
             dev_intersections,
             dev_triangles,
-            triangle_num
+            triangle_num,
+            dev_triIndices,
+            dev_bvh
         );
         checkCUDAError("trace one bounce");
         err = cudaDeviceSynchronize();
@@ -519,7 +538,7 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
                 int start = hst_materialStartIndices[mat];
                 int end = hst_materialEndIndices[mat];
 
-                printf("Mat: %d, Start: %d, End: %d\n", mat, start, end);
+                //printf("Mat: %d, Start: %d, End: %d\n", mat, start, end);
 
                 if (start < 0 || end < start)
                 {

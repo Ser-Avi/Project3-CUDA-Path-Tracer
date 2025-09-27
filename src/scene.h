@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sceneStructs.h"
+#include "intersections.h"
 #include "GLTFManager.h"
 #include <vector>
 
@@ -11,12 +12,10 @@ private:
 public:
     Scene(std::string filename);
     void loadFromGLTF();
-    std::string gltfName = "";
+    std::vector<std::string> gltfs;
     GLTFManager gltfManager;
     TextureLoader textLoader;
     std::vector<Geom> geoms;
     std::vector<Material> materials;
     RenderState state;
-
-    void initGPU();
 };

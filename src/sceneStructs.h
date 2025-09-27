@@ -17,8 +17,15 @@ enum GeomType
     TRIANGLE
 };
 
+struct alignas(32) BVHNode
+{
+    glm::vec3 aabbMin, aabbMax;
+    uint32_t leftFirst, triCount;
+};
+
 struct Triangle {
     glm::vec3 v0, v1, v2;
+    glm::vec3 centroid;
     glm::vec3 n0, n1, n2;
     glm::vec2 uv0, uv1, uv2;
     int material_id;

@@ -1,6 +1,7 @@
 #include "scene.h"
 
 #include "utilities.h"
+#include "pathtrace.h"
 
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtx/string_cast.hpp>
@@ -144,30 +145,39 @@ void Scene::loadFromJSON(const std::string& jsonName)
     state.image.resize(arraylen);
     std::fill(state.image.begin(), state.image.end(), glm::vec3());
 
-    gltfName = data.value("GLTF", "");
-    std::cout << gltfName << std::endl;
+    gltfs = data["GLTF"];
+    for (std::string gltfName : gltfs)
+    {
+        std::cout << "GLTF Name: " << gltfName << std::endl;
+    }
 }
 
 void Scene::loadFromGLTF()
 {
     GLTFLoader loader;
-    if (!loader.load(gltfName)) {
-        std::cerr << "Failed to load GLTF file" << std::endl;
-        return;
+    gltfManager.beginSequentialUpload();
+    for (std::string gltfName : gltfs)
+    {
+        if (!loader.load(gltfName)) {
+            std::cerr << "Failed to load GLTF file:" << gltfName << std::endl;
+            return;
+        }
+        else
+        {
+            gltfManager.addScene(loader, textLoader);
+            loader.clear();
+        }
     }
-    
-    // Upload to GPU
-    if (!gltfManager.uploadToGPU(loader, textLoader)) {
-        std::cerr << "Failed to upload to GPU" << std::endl;
-        return;
-    }
 
-    std::cout << "GLTF scene loaded successfully!" << std::endl;
-    std::cout << "Triangles: " << gltfManager.getNumTriangles() << std::endl;
-    std::cout << "Materials: " << gltfManager.getNumMaterials() << std::endl;
-}
+    // after we loaded in all the triangles we can construct the BVH
+    int numTri = gltfManager.getTrianglesHost()->size();
+    gltfManager.getBVHHost()->resize(numTri * 2);
+    gltfManager.getTriIntHost()->resize(numTri);
+    BVH::BuildBVH(numTri, *gltfManager.getTriIntHost(), *gltfManager.getTrianglesHost(), *gltfManager.getBVHHost(), gltfManager.nodes_used);
 
-void Scene::initGPU()
-{
+    gltfManager.finishSequentialUpload();
 
+    std::cout << "All scenes loaded successfully!" << std::endl;
+    std::cout << "Total triangles: " << gltfManager.getNumTriangles() << std::endl;
+    std::cout << "Total materials: " << gltfManager.getNumMaterials() << std::endl;
 }

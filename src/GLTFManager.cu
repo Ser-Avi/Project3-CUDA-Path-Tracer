@@ -113,6 +113,82 @@ void TextureLoader::cleanup() {
     texture_arrays.clear();
 }
 
+namespace BVH
+{
+    void BuildBVH(int N, std::vector<int>& triIdx, std::vector<Triangle>& tri, std::vector<BVHNode>& bvhNode, int nodesUsed)
+    {
+        // populate triangle index array
+        for (int i = 0; i < N; i++) triIdx[i] = i;
+        // calculate triangle centroids for partitioning
+        for (int i = 0; i < N; i++)
+            tri[i].centroid = glm::vec3(tri[i].v0 + tri[i].v1 + tri[i].v2) * 0.3333f;
+        // assign all triangles to root node
+        BVHNode& root = bvhNode[0];
+        root.leftFirst = 0, root.triCount = N;
+        UpdateNodeBounds(0, triIdx, tri, bvhNode);
+        // subdivide recursively
+        Subdivide(0, triIdx, tri, bvhNode, nodesUsed);
+    }
+
+    void UpdateNodeBounds(uint32_t nodeIdx, std::vector<int>& triIdx, std::vector<Triangle>& tri, std::vector<BVHNode>& bvhNode)
+    {
+        BVHNode& node = bvhNode[nodeIdx];
+        node.aabbMin = glm::vec3(1e30f);
+        node.aabbMax = glm::vec3(-1e30f);
+        for (uint32_t first = node.leftFirst, i = 0; i < node.triCount; i++)
+        {
+            uint32_t leafTriIdx = triIdx[first + i];
+            Triangle& leafTri = tri[leafTriIdx];
+            node.aabbMin = glm::min(node.aabbMin, leafTri.v0),
+                node.aabbMin = glm::min(node.aabbMin, leafTri.v1),
+                node.aabbMin = glm::min(node.aabbMin, leafTri.v2),
+                node.aabbMax = glm::max(node.aabbMax, leafTri.v0),
+                node.aabbMax = glm::max(node.aabbMax, leafTri.v1),
+                node.aabbMax = glm::max(node.aabbMax, leafTri.v2);
+        }
+    }
+
+    void Subdivide(uint32_t nodeIdx, std::vector<int>& triIdx, std::vector<Triangle>& tri, std::vector<BVHNode>& bvhNode, int nodesUsed)
+    {
+        // terminate recursion
+        BVHNode& node = bvhNode[nodeIdx];
+        if (node.triCount <= 2) return;
+        // determine split axis and position
+        glm::vec3 extent = node.aabbMax - node.aabbMin;
+        int axis = 0;
+        if (extent.y > extent.x) axis = 1;
+        if (extent.z > extent[axis]) axis = 2;
+        float splitPos = node.aabbMin[axis] + extent[axis] * 0.5f;
+        // in-place partition
+        int i = node.leftFirst;
+        int j = i + node.triCount - 1;
+        while (i <= j)
+        {
+            if (tri[triIdx[i]].centroid[axis] < splitPos)
+                i++;
+            else
+                std::swap(triIdx[i], triIdx[j--]);
+        }
+        // abort split if one of the sides is empty
+        int leftCount = i - node.leftFirst;
+        if (leftCount == 0 || leftCount == node.triCount) return;
+        // create child nodes
+        int leftChildIdx = nodesUsed++;
+        int rightChildIdx = nodesUsed++;
+        bvhNode[leftChildIdx].leftFirst = node.leftFirst;
+        bvhNode[leftChildIdx].triCount = leftCount;
+        bvhNode[rightChildIdx].leftFirst = i;
+        bvhNode[rightChildIdx].triCount = node.triCount - leftCount;
+        node.leftFirst = leftChildIdx;
+        node.triCount = 0;
+        UpdateNodeBounds(leftChildIdx, triIdx, tri, bvhNode);
+        UpdateNodeBounds(rightChildIdx, triIdx, tri, bvhNode);
+        // recurse
+        Subdivide(leftChildIdx, triIdx, tri, bvhNode, nodesUsed);
+        Subdivide(rightChildIdx, triIdx, tri, bvhNode, nodesUsed);
+    }
+}
+
 GLTFLoader::GLTFLoader() = default;
 
 GLTFLoader::~GLTFLoader() {
@@ -285,37 +361,24 @@ GLTFManager::~GLTFManager() {
     cleanup();
 }
 
-bool GLTFManager::uploadToGPU(const GLTFLoader& loader, TextureLoader& text_loader) {
-    cleanup();
-
-    uploadTriangles(loader.getMeshes());
-    uploadMaterials(loader.getMaterials(), text_loader);
-
-    std::cout << "Uploaded to GPU: " << num_triangles << " triangles, "
-        << num_PBRmaterials << " materials" << std::endl;
-
-    // delete loader as we will no longer need it
-    loader.~GLTFLoader();
-    return true;
+void GLTFManager::beginSequentialUpload() {
+    cleanup();  // Clear any existing data
+    host_triangles.clear();
+    host_materials.clear();
+    host_bvhNodes.clear();
+    host_triangleIndices.clear();
+    std::cout << "Beginning sequential upload..." << std::endl;
 }
 
-void GLTFManager::cleanup() {
-    if (dev_triangles) {
-        cudaFree(dev_triangles);
-        dev_triangles = nullptr;
-    }
-    if (dev_PBRmaterials) {
-        cudaFree(dev_PBRmaterials);
-        dev_PBRmaterials = nullptr;
-    }
+bool GLTFManager::addScene(const GLTFLoader& loader, TextureLoader& texture_loader) {
+    // Get meshes and materials from the loader
+    const auto& meshes = loader.getMeshes();
+    const auto& materials = loader.getMaterials();
 
-    num_triangles = 0;
-    num_PBRmaterials = 0;
-}
+    std::cout << "Adding scene with " << meshes.size() << " meshes and "
+        << materials.size() << " materials" << std::endl;
 
-void GLTFManager::uploadTriangles(const std::vector<GLTFLoader::MeshData>& meshes) {
-    std::vector<Triangle> host_triangles;
-
+    // Process meshes into triangles
     for (const auto& mesh : meshes) {
         if (mesh.indices.size() % 3 != 0) continue;
 
@@ -325,7 +388,7 @@ void GLTFManager::uploadTriangles(const std::vector<GLTFLoader::MeshData>& meshe
             uint32_t idx1 = mesh.indices[i + 1];
             uint32_t idx2 = mesh.indices[i + 2];
 
-            // Vertices
+            // vertex processing
             tri.v0 = glm::vec3(mesh.vertices[idx0 * 3], mesh.vertices[idx0 * 3 + 1], mesh.vertices[idx0 * 3 + 2]);
             tri.v1 = glm::vec3(mesh.vertices[idx1 * 3], mesh.vertices[idx1 * 3 + 1], mesh.vertices[idx1 * 3 + 2]);
             tri.v2 = glm::vec3(mesh.vertices[idx2 * 3], mesh.vertices[idx2 * 3 + 1], mesh.vertices[idx2 * 3 + 2]);
@@ -337,14 +400,14 @@ void GLTFManager::uploadTriangles(const std::vector<GLTFLoader::MeshData>& meshe
                 tri.n2 = glm::vec3(mesh.normals[idx2 * 3], mesh.normals[idx2 * 3 + 1], mesh.normals[idx2 * 3 + 2]);
             }
             else {
-                // Compute face normal if no normals provided
+                // Compute face normal
                 glm::vec3 edge1 = glm::vec3(tri.v1.x - tri.v0.x, tri.v1.y - tri.v0.y, tri.v1.z - tri.v0.z);
                 glm::vec3 edge2 = glm::vec3(tri.v2.x - tri.v0.x, tri.v2.y - tri.v0.y, tri.v2.z - tri.v0.z);
                 glm::vec3 normal = glm::normalize(glm::cross(edge1, edge2));
                 tri.n0 = tri.n1 = tri.n2 = normal;
             }
 
-            // UV coordinates
+            // UVs
             if (!mesh.texcoords.empty()) {
                 tri.uv0 = glm::vec2(mesh.texcoords[idx0 * 2], mesh.texcoords[idx0 * 2 + 1]);
                 tri.uv1 = glm::vec2(mesh.texcoords[idx1 * 2], mesh.texcoords[idx1 * 2 + 1]);
@@ -354,70 +417,95 @@ void GLTFManager::uploadTriangles(const std::vector<GLTFLoader::MeshData>& meshe
                 tri.uv0 = tri.uv1 = tri.uv2 = glm::vec2(0.0f, 0.0f);
             }
 
-            tri.material_id = mesh.material_id;
+            // Adjust material ID for combined scene
+            tri.material_id = mesh.material_id + host_materials.size();
             host_triangles.push_back(tri);
         }
     }
 
-    num_triangles = host_triangles.size();
-    if (num_triangles > 0) {
-        cudaMalloc(&dev_triangles, num_triangles * sizeof(Triangle));
-        cudaMemcpy(dev_triangles, host_triangles.data(),
-            num_triangles * sizeof(Triangle), cudaMemcpyHostToDevice);
-    }
-}
-
-void GLTFManager::uploadMaterials(const std::vector<GLTFLoader::MaterialData>& materials,
-    TextureLoader& text_loader) {
-    std::vector<Material> host_materials;
-    for (size_t i = 0; i < materials.size(); i++) {
-        const auto& mat = materials[i];
+    // Process materials
+    for (const auto& mat : materials) {
         Material cuda_mat;
-
         cuda_mat.color = glm::vec3(mat.base_color[0], mat.base_color[1], mat.base_color[2]);
         cuda_mat.metallic = mat.metallic;
         cuda_mat.roughness = mat.roughness;
 
-        // Load textures and get direct CUDA texture handles
-        cuda_mat.base_color_tex = text_loader.getTexture(mat.base_color_texture_path);
-        cuda_mat.metallic_roughness_tex = text_loader.getTexture(mat.metallic_roughness_texture_path);
-        cuda_mat.normal_tex = text_loader.getTexture(mat.normal_texture_path);
-        cuda_mat.emissive_tex = text_loader.getTexture(mat.emissive_texture_path);
-
-        // Debug output
-        std::cout << "Material " << i << ":" << std::endl;
-        std::cout << "  Base color: (" << cuda_mat.color.x << ", "
-            << cuda_mat.color.y << ", " << cuda_mat.color.z << ")" << std::endl;
-        std::cout << "  Metallic: " << cuda_mat.metallic << ", Roughness: " << cuda_mat.roughness << std::endl;
-        std::cout << "  Base color texture: " << (cuda_mat.base_color_tex != 0 ? "LOADED" : "MISSING")
-            << " (handle: " << cuda_mat.base_color_tex << ")" << std::endl;
-        if (!mat.base_color_texture_path.empty()) {
-            std::cout << "  Texture path: " << mat.base_color_texture_path << std::endl;
-        }
+        // Load textures
+        cuda_mat.base_color_tex = texture_loader.getTexture(mat.base_color_texture_path);
+        cuda_mat.metallic_roughness_tex = texture_loader.getTexture(mat.metallic_roughness_texture_path);
+        cuda_mat.normal_tex = texture_loader.getTexture(mat.normal_texture_path);
+        cuda_mat.emissive_tex = texture_loader.getTexture(mat.emissive_texture_path);
 
         host_materials.push_back(cuda_mat);
     }
 
-    // Add a default material if no materials exist
-    if (host_materials.empty()) {
-        std::cout << "No materials found, creating default material" << std::endl;
-        Material default_mat;
-        default_mat.color = glm::vec3(0.8f, 0.8f, 0.8f);
-        default_mat.metallic = 0.0f;
-        default_mat.roughness = 0.5f;
-        default_mat.emissive_factor = glm::vec3(0.0f);
-        default_mat.base_color_tex = 0;  // No texture
-        default_mat.metallic_roughness_tex = 0;
-        default_mat.normal_tex = 0;
-        default_mat.emissive_tex = 0;
-        host_materials.push_back(default_mat);
+    std::cout << "Scene added. Total so far: " << host_triangles.size() << " triangles, "
+        << host_materials.size() << " materials" << std::endl;
+
+    return true;
+}
+
+void GLTFManager::finishSequentialUpload() {
+    // Upload accumulated data to GPU
+    num_triangles = host_triangles.size();
+    num_PBRmaterials = host_materials.size();
+    nodes_used = host_bvhNodes.size();
+
+    if (num_triangles > 0) {
+        cudaMalloc(&dev_triangles, num_triangles * sizeof(Triangle));
+        cudaMemcpy(dev_triangles, host_triangles.data(),
+            num_triangles * sizeof(Triangle), cudaMemcpyHostToDevice);
+
+        // malloc bvh stuff
+        cudaMalloc(&dev_triIndices, num_triangles * sizeof(int));
+        cudaMemcpy(dev_triIndices, host_triangleIndices.data(), num_triangles * sizeof(int), cudaMemcpyHostToDevice);
+        cudaMalloc(&dev_bvh, nodes_used * sizeof(BVHNode));
+        cudaMemcpy(dev_bvh, host_bvhNodes.data(), nodes_used * sizeof(BVHNode), cudaMemcpyHostToDevice);
     }
 
-    num_PBRmaterials = host_materials.size();
     if (num_PBRmaterials > 0) {
         cudaMalloc(&dev_PBRmaterials, num_PBRmaterials * sizeof(Material));
         cudaMemcpy(dev_PBRmaterials, host_materials.data(),
             num_PBRmaterials * sizeof(Material), cudaMemcpyHostToDevice);
-        
     }
+
+    std::cout << "Sequential upload completed: " << num_triangles << " triangles, "
+        << num_PBRmaterials << " materials" << std::endl;
+
+    // Clear host data to save memory
+    host_triangles.clear();
+    host_materials.clear();
+    host_bvhNodes.clear();
+    host_triangleIndices.clear();
+}
+
+void GLTFManager::clearCurrData() {
+    cleanup();
+    host_triangles.clear();
+    host_materials.clear();
+    host_bvhNodes.clear();
+    host_triangleIndices.clear();
+}
+
+void GLTFManager::cleanup() {
+    if (dev_triangles) {
+        cudaFree(dev_triangles);
+        dev_triangles = nullptr;
+    }
+    if (dev_PBRmaterials) {
+        cudaFree(dev_PBRmaterials);
+        dev_PBRmaterials = nullptr;
+    }
+    if (dev_bvh) {
+        cudaFree(dev_bvh);
+        dev_bvh = nullptr;
+    }
+    if (dev_triIndices) {
+        cudaFree(dev_triIndices);
+        dev_triIndices = nullptr;
+    }
+
+    num_triangles = 0;
+    num_PBRmaterials = 0;
+    nodes_used = 1;
 }

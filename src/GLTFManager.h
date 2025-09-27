@@ -4,6 +4,7 @@
 #include "stb_image.h"
 #include "stb_image_write.h"
 #include "sceneStructs.h"
+#include "intersections.h"
 #include <vector>
 #include <string>
 #include <iostream>
@@ -11,6 +12,8 @@
 #include <cuda_runtime_api.h>
 #include "glm/common.hpp"
 #include "glm/glm.hpp"
+#include <utility>
+#include <algorithm>
 
 class TextureLoader {
 public:
@@ -33,6 +36,17 @@ private:
     std::map<std::string, cudaTextureObject_t> texture_cache;
     std::vector<cudaArray_t> texture_arrays; // For cleanup
 };
+
+/// <summary>
+/// This BVH method comes from the following blog:
+/// https://jacco.ompf2.com/2022/04/13/how-to-build-a-bvh-part-1-basics/
+/// </summary>
+namespace BVH
+{
+    void BuildBVH(int N, std::vector<int>& triIdx, std::vector<Triangle>& tri, std::vector<BVHNode>& bvhNode, int nodesUsed);
+    void UpdateNodeBounds(uint32_t nodeIdx, std::vector<int>& triIdx, std::vector<Triangle>& tri, std::vector<BVHNode>& bvhNode);
+    void Subdivide(uint32_t nodeIdx, std::vector<int>& triIdx, std::vector<Triangle>& tri, std::vector<BVHNode>& bvhNode, int nodesUsed);
+}
 
 class GLTFLoader {
 public:
@@ -89,24 +103,39 @@ public:
     GLTFManager();
     ~GLTFManager();
 
-    bool uploadToGPU(const GLTFLoader& loader, TextureLoader& text_loader);
+    void beginSequentialUpload();       // for multiple gltfs
+    bool addScene(const GLTFLoader& loader, TextureLoader& texture_loader);
+    void finishSequentialUpload();
+
+    void clearCurrData();
     void cleanup();
 
     // Device data accessors
     Triangle* getTrianglesDevice() const { return dev_triangles; }
+    std::vector<Triangle>* getTrianglesHost() { return &host_triangles; }
     Material* getPBRMaterialsDevice() const { return dev_PBRmaterials; }
+    int* getTriIntDevice() const { return dev_triIndices; }
+    BVHNode* getBVHDevice() const { return dev_bvh; }
+    std::vector<BVHNode>* getBVHHost() { return &host_bvhNodes; }
+    std::vector<int>* getTriIntHost() { return &host_triangleIndices; }
 
     int getNumTriangles() const { return num_triangles; }
     int getNumMaterials() const { return num_PBRmaterials; }
+    int nodes_used = 1;
 
 private:
-    void uploadTriangles(const std::vector<GLTFLoader::MeshData>& meshes);
-    void uploadMaterials(const std::vector<GLTFLoader::MaterialData>& materials,
-        TextureLoader& text_loader);
- 
+
+    // Host vals
+    std::vector<Triangle> host_triangles;
+    std::vector<Material> host_materials;
+    std::vector<BVHNode> host_bvhNodes;
+    std::vector<int> host_triangleIndices;
+
     // Device pointers
     Triangle* dev_triangles = nullptr;
     Material* dev_PBRmaterials = nullptr;
+    BVHNode* dev_bvh = nullptr;
+    int* dev_triIndices = nullptr;
 
     int num_triangles = 0;
     int num_PBRmaterials = 0;

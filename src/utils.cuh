@@ -64,8 +64,6 @@ namespace Utils
         b1 = glm::vec3(1.0f + sign * n.x * n.x * a, sign * b, -sign * n.x);
         b2 = glm::vec3(b, sign + n.y * n.y * a, -n.y);
     }
-
-
 }
 
 namespace PBR
@@ -75,6 +73,31 @@ namespace PBR
     {
         int h = utilhash((1 << 31) | (depth << 22) | iter) ^ utilhash(index);
         return thrust::default_random_engine(h);
+    }
+
+    DEV_INLINE void handleMaterialMaps(Material* mat, const glm::vec2 uv, glm::vec3& albedo, float& metallic, float& rough,
+        float& ao, glm::vec3 nor)
+    {
+        if (mat->metallic_roughness_tex != 0)
+        {
+            glm::vec4 metRough = Utils::sampleTexture(mat->metallic_roughness_tex, uv);
+            ao = metRough.r < EPSILON ? 1. : metRough.r;    // ao is not necessarily in this texture
+            metallic = metRough.b;
+            rough = metRough.g;
+        }
+        if (mat->base_color_tex != 0)
+        {
+            albedo = glm::vec3(Utils::sampleTexture(mat->base_color_tex, uv));
+        }
+        if (mat->normal_tex != 0)
+        {
+            nor = glm::vec3(Utils::sampleTexture(mat->normal_tex, uv));
+        }
+    }
+
+    DEV_INLINE glm::vec3 fresnelShlickRoughness(float cosTheta, glm::vec3 R, float rough)
+    {
+        return R + (max(glm::vec3(1.0f - rough), R) - R) * pow(glm::clamp(1.0f - cosTheta, 0.0f, 1.0f), 5.0f);
     }
 
     DEV_INLINE void inlineShadeNosect(int iter,
@@ -265,21 +288,26 @@ namespace PBR
             seg->remainingBounces = 0;
             ShadeableIntersection* intSect = &shadeableIntersections[idx];
             glm::vec2 uv = intSect->uv;
-            cudaTextureObject_t tex = materials[intSect->materialId].base_color_tex;// textures[materials[intSect->materialId].base_color_tex];
-            if (tex != 0)
-            {
-                glm::vec4 texel = Utils::sampleTexture(tex, uv);
-                seg->color = glm::vec3(texel.x, texel.y, texel.z);
-                //seg->color = glm::vec3(uv.x, uv.y, 1.0);
-            }
-            else
-            {
-                seg->color = (intSect->surfaceNormal + glm::vec3(1.)) * 0.5f;
-            }
+            Material mat = materials[intSect->materialId];
+            glm::vec3 albedo = mat.color;
+            glm::vec3 nor = intSect->surfaceNormal;
+            float metallic = mat.metallic;
+            float roughness = mat.roughness;
+            float ao = 1.;
+            handleMaterialMaps(&mat, uv, albedo, metallic, roughness, ao, nor);
+            glm::vec3 wo = -seg->ray.direction;
+            
+            // Actual PBR stuff
+            glm::vec3 R = glm::mix(glm::vec3(0.04f), albedo, metallic);
+            glm::vec3 kS = fresnelShlickRoughness(abs(dot(nor, wo)), R, roughness);
+            glm::vec3 kD = 1.0f - kS;
+            kD *= 1.0 - metallic;
 
             thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, seg->remainingBounces);
             thrust::uniform_real_distribution<float> u01(0, 1);
             glm::vec3 wi = calculateRandomDirectionInHemisphere(intSect->surfaceNormal, rng);
+
+            seg->color *= albedo;
 
             // then we bounce a new ray
             seg->remainingBounces--;

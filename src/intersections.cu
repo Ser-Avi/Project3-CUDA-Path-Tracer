@@ -153,3 +153,62 @@ __host__ __device__ float triangleIntersectionTest(
     uv = glm::fract(uv);    // enforced wrapping
     return t;
 }
+
+__device__ bool IntersectAABB(const Ray& ray, const glm::vec3 bmin, const glm::vec3 bmax, float temp_T)
+{
+    float tx1 = (bmin.x - ray.origin.x) / ray.direction.x, tx2 = (bmax.x - ray.origin.x) / ray.direction.x;
+    float tmin = min(tx1, tx2), tmax = max(tx1, tx2);
+    float ty1 = (bmin.y - ray.origin.y) / ray.direction.y, ty2 = (bmax.y - ray.origin.y) / ray.direction.y;
+    tmin = max(tmin, min(ty1, ty2)), tmax = min(tmax, max(ty1, ty2));
+    float tz1 = (bmin.z - ray.origin.z) / ray.direction.z, tz2 = (bmax.z - ray.origin.z) / ray.direction.z;
+    tmin = max(tmin, min(tz1, tz2)), tmax = min(tmax, max(tz1, tz2));
+    return tmax >= tmin && tmin < temp_T && tmax > 0;
+}
+
+// In order for this function to be non-recursive, I used Sebastial Lague's method, as seen in this
+// youtube video: https://www.youtube.com/watch?v=C1H4zIiCOaI&t=932s
+__device__ float IntersectBVH(Ray& ray, const uint32_t nodeIdx, BVHNode* bvhNode, int* triIdx, Triangle* tri, float temp_t,
+    glm::vec3& intersectionPoint,
+    glm::vec3& normal,
+    glm::vec2& uv,
+    bool& outside, int& idx)
+{
+    BVHNode nodeStack[16]; // max recursion depth is 16 for now.
+    int stackIdx = 0;
+    nodeStack[stackIdx++] = bvhNode[0];
+
+    glm::vec3 tmp_p, tmp_nor;
+    glm::vec2 tmp_uv;
+    float min_t = FLT_MAX;
+
+    while (stackIdx > 0)
+    {
+        BVHNode node = nodeStack[--stackIdx];
+
+        if (IntersectAABB(ray, node.aabbMin, node.aabbMax, temp_t))
+        {
+            if (node.triCount > 0)  // i.e. is leaf
+            {
+                for (uint32_t i = node.leftFirst; i < node.leftFirst + node.triCount; ++i)
+                {
+                    temp_t = triangleIntersectionTest(tri[triIdx[node.leftFirst + i]], ray, tmp_p, tmp_nor, tmp_uv, outside);
+                    if (temp_t < min_t && temp_t > 0.f)
+                    {
+                        intersectionPoint = tmp_p;
+                        normal = tmp_nor;
+                        uv = tmp_uv;
+                        min_t = temp_t;
+                        idx = i;
+                    }
+                }
+            }
+            else
+            {
+                nodeStack[stackIdx++] = bvhNode[node.leftFirst + 1];
+                nodeStack[stackIdx++] = bvhNode[node.leftFirst + 0];
+            }
+        }
+    }
+
+    return min_t;
+}

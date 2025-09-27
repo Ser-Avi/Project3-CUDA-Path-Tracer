@@ -1,0 +1,45 @@
+{
+    "Materials":
+    {
+        "light":
+        {
+            "TYPE":"Emitting",
+            "RGB":[1.0, 1.0, 1.0],
+            "EMITTANCE":15.0
+        },
+        "diffuse_black":
+        {
+            "TYPE":"Diffuse",
+            "RGB":[0.0, 0.0, 0.0]
+        }
+    },
+    "GLTF": "../scenes/CesiumMan/CesiumMan.gltf",
+    "Camera":
+    {
+        "RES":[800,800],
+        "FOVY":45.0,
+        "ITERATIONS":5000,
+        "DEPTH":8,
+        "FILE":"test",
+        "EYE":[0.0,0.0,10.5],
+        "LOOKAT":[0.0,0.0,0.0],
+        "UP":[0.0,1.0,0.0]
+    },
+    "Objects":
+    [
+        {
+            "TYPE":"cube",
+            "MATERIAL":"light",
+            "TRANS":[0.0,20.0,0.0],
+            "ROTAT":[0.0,0.0,0.0],
+            "SCALE":[6.0,0.3,6.0]
+        },
+        {
+            "TYPE":"cube",
+            "MATERIAL":"diffuse_black",
+            "TRANS":[-1.0,0.0,0.0],
+            "ROTAT":[0.0,0.0,0.0],
+            "SCALE":[0.01,10.0,10.0]
+        }
+    ]
+}

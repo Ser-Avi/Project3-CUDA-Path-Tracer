@@ -6,7 +6,6 @@
 #include <glm/glm.hpp>
 #include <glm/gtx/intersect.hpp>
 
-
 /**
  * Handy-dandy hash function that provides seeds for random number generation.
  */
@@ -80,3 +79,11 @@ __host__ __device__ float triangleIntersectionTest(
     glm::vec3& normal,
     glm::vec2& uv,
     bool& outside);
+
+__device__ bool IntersectAABB(const Ray& ray, const glm::vec3 bmin, const glm::vec3 bmax, float temp_T);
+
+__device__ float IntersectBVH(Ray& ray, const uint32_t nodeIdx, BVHNode* bvhNode, int* triIdx, Triangle* tri, float temp_t,
+    glm::vec3& intersectionPoint,
+    glm::vec3& normal,
+    glm::vec2& uv,
+    bool& outside, int& idx);
