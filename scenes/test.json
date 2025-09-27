@@ -13,7 +13,7 @@
             "RGB":[0.0, 0.0, 0.0]
         }
     },
-    "GLTF": "../scenes/CesiumMan/CesiumMan.gltf",
+    "GLTF": ["../scenes/CesiumMan/CesiumMan.gltf"],
     "Camera":
     {
         "RES":[800,800],

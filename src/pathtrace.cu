@@ -274,6 +274,8 @@ __global__ void computeIntersections(
         glm::vec2 tmp_uv;
         int idx;
 
+        t = FLT_MAX;
+
         t = IntersectBVH(pathSegment->ray, 0, BVHs, triIndices, triangles, t, tmp_intersect, tmp_normal, tmp_uv, outside, idx);
 
         if (t > 0.0f && t_min > t)

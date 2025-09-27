@@ -123,3 +123,15 @@ struct ShadeableIntersection
   int materialId;
   MaterialType materialType;
 };
+
+struct aabb
+{
+    glm::vec3 bmin = glm::vec3(1e30f);
+    glm::vec3 bmax = glm::vec3(-1e30f);
+    void grow(glm::vec3 p) { bmin = glm::min(bmin, p), bmax = glm::max(bmax, p); }
+    float area()
+    {
+        glm::vec3 e = bmax - bmin; // box extent
+        return e.x * e.y + e.y * e.z + e.z * e.x;
+    }
+};

@@ -1,5 +1,7 @@
 #include "GLTFManager.h"
 
+#define BalancedBVH true
+
 
 TextureLoader::TextureLoader() = default;
 
@@ -115,13 +117,15 @@ void TextureLoader::cleanup() {
 
 namespace BVH
 {
-    void BuildBVH(int N, std::vector<int>& triIdx, std::vector<Triangle>& tri, std::vector<BVHNode>& bvhNode, int nodesUsed)
+    void BuildBVH(int N, std::vector<int>& triIdx, std::vector<Triangle>& tri, std::vector<BVHNode>& bvhNode, int& nodesUsed)
     {
         // populate triangle index array
         for (int i = 0; i < N; i++) triIdx[i] = i;
         // calculate triangle centroids for partitioning
         for (int i = 0; i < N; i++)
+        {
             tri[i].centroid = glm::vec3(tri[i].v0 + tri[i].v1 + tri[i].v2) * 0.3333f;
+        }
         // assign all triangles to root node
         BVHNode& root = bvhNode[0];
         root.leftFirst = 0, root.triCount = N;
@@ -139,42 +143,105 @@ namespace BVH
         {
             uint32_t leafTriIdx = triIdx[first + i];
             Triangle& leafTri = tri[leafTriIdx];
-            node.aabbMin = glm::min(node.aabbMin, leafTri.v0),
-                node.aabbMin = glm::min(node.aabbMin, leafTri.v1),
-                node.aabbMin = glm::min(node.aabbMin, leafTri.v2),
-                node.aabbMax = glm::max(node.aabbMax, leafTri.v0),
-                node.aabbMax = glm::max(node.aabbMax, leafTri.v1),
-                node.aabbMax = glm::max(node.aabbMax, leafTri.v2);
+            node.aabbMin = glm::min(node.aabbMin, leafTri.v0);
+            node.aabbMin = glm::min(node.aabbMin, leafTri.v1);
+            node.aabbMin = glm::min(node.aabbMin, leafTri.v2);
+            node.aabbMax = glm::max(node.aabbMax, leafTri.v0);
+            node.aabbMax = glm::max(node.aabbMax, leafTri.v1);
+            node.aabbMax = glm::max(node.aabbMax, leafTri.v2);
         }
     }
 
-    void Subdivide(uint32_t nodeIdx, std::vector<int>& triIdx, std::vector<Triangle>& tri, std::vector<BVHNode>& bvhNode, int nodesUsed)
+    float EvaluateSAH(BVHNode& node, int axis, float pos,
+        std::vector<int>& triIdx, std::vector<Triangle>& tri)
+    {
+        // determine triangle counts and bounds for this split candidate
+        aabb leftBox, rightBox;
+        int leftCount = 0, rightCount = 0;
+        for (uint32_t i = 0; i < node.triCount; i++)
+        {
+            Triangle& triangle = tri[triIdx[node.leftFirst + i]];
+            if (triangle.centroid[axis] < pos)
+            {
+                leftCount++;
+                leftBox.grow(triangle.v0);
+                leftBox.grow(triangle.v1);
+                leftBox.grow(triangle.v2);
+            }
+            else
+            {
+                rightCount++;
+                rightBox.grow(triangle.v0);
+                rightBox.grow(triangle.v1);
+                rightBox.grow(triangle.v2);
+            }
+        }
+        float cost = leftCount * leftBox.area() + rightCount * rightBox.area();
+        return cost > 0 ? cost : 1e30f;
+    }
+
+    void Subdivide(uint32_t nodeIdx, std::vector<int>& triIdx, std::vector<Triangle>& tri, std::vector<BVHNode>& bvhNode, int& nodesUsed)
     {
         // terminate recursion
         BVHNode& node = bvhNode[nodeIdx];
-        if (node.triCount <= 2) return;
-        // determine split axis and position
+#if BalancedBVH
+        // Balanced split axis and pos using surface area heuristic (SAH)
+        int bestAxis = -1;
+        float bestPos = 0, bestCost = 1e30f;
+        for (int axis = 0; axis < 3; axis++) for (uint32_t i = 0; i < node.triCount; i++)
+        {
+            Triangle& triangle = tri[triIdx[node.leftFirst + i]];
+            float candidatePos = triangle.centroid[axis];
+            float cost = EvaluateSAH(node, axis, candidatePos, triIdx, tri);
+            if (cost < bestCost)
+                bestPos = candidatePos, bestAxis = axis, bestCost = cost;
+        }
+        int axis = bestAxis;
+        float splitPos = bestPos;
+        // new exit calculations
+        glm::vec3 e = node.aabbMax - node.aabbMin; // extent of parent
+        float parentArea = e.x * e.y + e.y * e.z + e.z * e.x;
+        float parentCost = node.triCount * parentArea;
+        if (bestCost >= parentCost) return;
+#else
+        // this check is only for naive
+        // since SAH method knows that stopping before this can sometimes be better
+        // or stopping later also (?)
+        if (node.triCount <= 2)
+        {
+            std::cout << "less than 2 at idx: " << nodeIdx << std::endl;
+            return;
+        }
+        // Naive split axis and pos
         glm::vec3 extent = node.aabbMax - node.aabbMin;
         int axis = 0;
         if (extent.y > extent.x) axis = 1;
-        if (extent.z > extent[axis]) axis = 2;
+        if (extent.z > extent.y) axis = 2;
         float splitPos = node.aabbMin[axis] + extent[axis] * 0.5f;
+#endif
         // in-place partition
         int i = node.leftFirst;
         int j = i + node.triCount - 1;
         while (i <= j)
         {
-            if (tri[triIdx[i]].centroid[axis] < splitPos)
+            if (tri[triIdx[i]].centroid[axis] < splitPos - EPSILON)
+            {
                 i++;
+            }
             else
-                std::swap(triIdx[i], triIdx[j--]);
+            {
+                std::swap(triIdx[i], triIdx[j]);
+                --j;
+            }
         }
         // abort split if one of the sides is empty
         int leftCount = i - node.leftFirst;
+        printf("Left Count: %d, triangles: %d\n", leftCount, node.triCount);
         if (leftCount == 0 || leftCount == node.triCount) return;
         // create child nodes
         int leftChildIdx = nodesUsed++;
         int rightChildIdx = nodesUsed++;
+        std::cout << "Nodes used: " << nodesUsed << std::endl;
         bvhNode[leftChildIdx].leftFirst = node.leftFirst;
         bvhNode[leftChildIdx].triCount = leftCount;
         bvhNode[rightChildIdx].leftFirst = i;

@@ -154,51 +154,121 @@ __host__ __device__ float triangleIntersectionTest(
     return t;
 }
 
-__device__ bool IntersectAABB(const Ray& ray, const glm::vec3 bmin, const glm::vec3 bmax, float temp_T)
+__device__ bool IntersectAABB(const Ray& ray, const glm::vec3 bmin, const glm::vec3 bmax, float temp_t)
 {
     float tx1 = (bmin.x - ray.origin.x) / ray.direction.x, tx2 = (bmax.x - ray.origin.x) / ray.direction.x;
-    float tmin = min(tx1, tx2), tmax = max(tx1, tx2);
+    float tmin = glm::min(tx1, tx2), tmax = glm::max(tx1, tx2);
     float ty1 = (bmin.y - ray.origin.y) / ray.direction.y, ty2 = (bmax.y - ray.origin.y) / ray.direction.y;
-    tmin = max(tmin, min(ty1, ty2)), tmax = min(tmax, max(ty1, ty2));
+    tmin = glm::max(tmin, glm::min(ty1, ty2)), tmax = glm::min(tmax, glm::max(ty1, ty2));
     float tz1 = (bmin.z - ray.origin.z) / ray.direction.z, tz2 = (bmax.z - ray.origin.z) / ray.direction.z;
-    tmin = max(tmin, min(tz1, tz2)), tmax = min(tmax, max(tz1, tz2));
-    return tmax >= tmin && tmin < temp_T && tmax > 0;
+    tmin = glm::max(tmin, glm::min(tz1, tz2)), tmax = glm::min(tmax, glm::max(tz1, tz2));
+    return tmax >= tmin && (tmin < temp_t || temp_t < 0) && tmax > 0; // if using the old traversal...
+
+    //if (tmax >= tmin && (tmin < temp_t || temp_t < 0) && tmax > 0)
+    //    return tmin;
+    //else
+    //    return 1e30f;
 }
 
-// In order for this function to be non-recursive, I used Sebastial Lague's method, as seen in this
-// youtube video: https://www.youtube.com/watch?v=C1H4zIiCOaI&t=932s
+// Improved distance/order based traversal
 __device__ float IntersectBVH(Ray& ray, const uint32_t nodeIdx, BVHNode* bvhNode, int* triIdx, Triangle* tri, float temp_t,
     glm::vec3& intersectionPoint,
     glm::vec3& normal,
     glm::vec2& uv,
     bool& outside, int& idx)
 {
-    BVHNode nodeStack[16]; // max recursion depth is 16 for now.
-    int stackIdx = 0;
-    nodeStack[stackIdx++] = bvhNode[0];
-
     glm::vec3 tmp_p, tmp_nor;
     glm::vec2 tmp_uv;
     float min_t = FLT_MAX;
 
+    //uint32_t stackPtr = 0;
+    //BVHNode* node = &bvhNode[0], * stack[64];
+    //while (1)
+    //{
+    //    if (node->triCount > 0)
+    //    {
+    //        for (uint32_t i = 0; i < node->triCount; ++i)
+    //        {
+    //            int triangleIndex = triIdx[node->leftFirst + i];
+    //            temp_t = triangleIntersectionTest(tri[triangleIndex], ray, tmp_p, tmp_nor, tmp_uv, outside);
+    //            if (temp_t < min_t && temp_t > 0.f)
+    //            {
+    //                intersectionPoint = tmp_p;
+    //                normal = tmp_nor;
+    //                uv = tmp_uv;
+    //                min_t = temp_t;
+    //                idx = triangleIndex;
+    //            }
+    //        }
+    //        if (stackPtr == 0)
+    //        {
+    //            break;
+    //        }
+    //        else
+    //        {
+    //            node = stack[--stackPtr];
+    //        }
+    //        continue;
+    //    }
+
+    //    BVHNode* child1 = &bvhNode[node->leftFirst];
+    //    BVHNode* child2 = &bvhNode[node->leftFirst + 1];
+    //    float dist1 = IntersectAABB(ray, child1->aabbMin, child1->aabbMax, temp_t);
+    //    float dist2 = IntersectAABB(ray, child2->aabbMin, child2->aabbMax, temp_t);
+    //    if (dist1 > dist2)
+    //    { 
+    //        //swap(dist1, dist2); swap(child1, child2);
+    //        float tempdist = dist2;
+    //        dist2 = dist1;
+    //        dist1 = tempdist;
+    //        BVHNode* tempchild = child2;
+    //        child2 = child1;
+    //        child1 = tempchild;
+    //    }
+    //    if (dist1 > 1e29f)
+    //    {
+    //        if (stackPtr == 0)
+    //        {
+    //            break;
+    //        }
+    //        else 
+    //        { 
+    //            node = stack[--stackPtr];
+    //        }
+    //    }
+    //    else
+    //    {
+    //        node = child1;
+    //        if (dist2 != 1e30f) stack[stackPtr++] = child2;
+    //    }
+    //}
+
+    // old more naive traversal
+    // In order for this function to be non-recursive, I used Sebastial Lague's method, as seen in this
+    // youtube video: https://www.youtube.com/watch?v=C1H4zIiCOaI&t=932s
+
+    BVHNode nodeStack[16]; // max recursion depth is 16 for now.
+    int stackIdx = 0;
+    nodeStack[stackIdx++] = bvhNode[0];
+
     while (stackIdx > 0)
     {
         BVHNode node = nodeStack[--stackIdx];
-
         if (IntersectAABB(ray, node.aabbMin, node.aabbMax, temp_t))
         {
             if (node.triCount > 0)  // i.e. is leaf
             {
-                for (uint32_t i = node.leftFirst; i < node.leftFirst + node.triCount; ++i)
+                for (uint32_t i = 0; i < node.triCount; ++i)
                 {
-                    temp_t = triangleIntersectionTest(tri[triIdx[node.leftFirst + i]], ray, tmp_p, tmp_nor, tmp_uv, outside);
+                    int triangleIndex = triIdx[node.leftFirst + i];
+                    temp_t = triangleIntersectionTest(tri[triangleIndex], ray, tmp_p, tmp_nor, tmp_uv, outside);
                     if (temp_t < min_t && temp_t > 0.f)
                     {
                         intersectionPoint = tmp_p;
                         normal = tmp_nor;
                         uv = tmp_uv;
                         min_t = temp_t;
-                        idx = i;
+                        idx = triangleIndex;
                     }
                 }
             }
@@ -209,6 +279,5 @@ __device__ float IntersectBVH(Ray& ray, const uint32_t nodeIdx, BVHNode* bvhNode
             }
         }
     }
-
     return min_t;
 }
