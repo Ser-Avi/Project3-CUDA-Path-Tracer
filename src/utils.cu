@@ -36,6 +36,39 @@ namespace Utils
         float4 text = tex2D<float4>(tex, uv.x, uv.y);
         return glm::vec4(text.x, text.y, text.z, text.w);
     }
+
+    __device__ float Lambda(const glm::vec3& w, const float roughness)
+    {
+        float absTanTheta = abs(TanTheta(w));
+        if (isinf(absTanTheta)) return 0.;
+
+        // Compute alpha for direction w
+        float alpha =
+            sqrt(Cos2Phi(w) * roughness * roughness + Sin2Phi(w) * roughness * roughness);
+        float alpha2Tan2Theta = (roughness * absTanTheta) * (roughness * absTanTheta);
+        return (-1 + sqrt(1.f + alpha2Tan2Theta)) / 2;
+    }
+
+    __device__ float TrowbridgeReitzD(const glm::vec3& wh, const float roughness)
+    {
+        float tan2Theta = Tan2Theta(wh);
+        if (isinf(tan2Theta)) return 0.f;
+
+        float cos4Theta = Cos2Theta(wh) * Cos2Theta(wh);
+
+        float e = (Cos2Phi(wh) / (roughness * roughness) + Sin2Phi(wh) / (roughness * roughness)) * tan2Theta;
+        return 1 / (PI * roughness * roughness * cos4Theta * (1 + e) * (1 + e));
+    }
+
+    __device__ float TrowbridgeReitzG(const glm::vec3& wo, const glm::vec3& wi, const float roughness)
+    {
+        return 1 / (1 + Lambda(wo, roughness) + Lambda(wi, roughness));
+    }
+
+    __device__ float TrowbridgeReitzPdf(const glm::vec3& wo, const glm::vec3& wh, const float roughness)
+    {
+        return TrowbridgeReitzD(wh, roughness) * glm::abs(wh.z);
+    }
 }
 
 namespace PBR
@@ -93,7 +126,7 @@ namespace PBR
             }
             break;
         case PBR_MAT:
-            // Not yet handled
+            inlineShadePBR(iter, num_paths, shadeableIntersections, pathSegments, materials);   // I think this should have pbr mats
             break;
         default:
             // No material tag-> how did we even get here?

@@ -25,7 +25,7 @@ struct alignas(32) BVHNode
 
 struct Triangle {
     glm::vec3 v0, v1, v2;
-    glm::vec3 centroid;
+    //glm::vec3 centroid;
     glm::vec3 n0, n1, n2;
     glm::vec2 uv0, uv1, uv2;
     int material_id;
@@ -64,7 +64,7 @@ struct Geom
 struct Material
 {
     MaterialType type;
-    glm::vec3 color;
+    glm::vec3 color = glm::vec3(1.);    // default to white
     struct
     {
         float exponent;
@@ -72,14 +72,14 @@ struct Material
     } specular;
     float probReflVTrans; // the probability of it reflecting vs transmitting
     float indexOfRefraction;
-    float emittance;
-    float roughness;
-    float metallic;
+    float emittance = 0.;   // default to non-emissive
+    float roughness = 1.;   // default to rough plastic for pbr
+    float metallic = 0.;
+    float ao = 1.;
     glm::vec3 emissive_factor;
     cudaTextureObject_t base_color_tex;
     cudaTextureObject_t metallic_roughness_tex;
     cudaTextureObject_t normal_tex;
-    cudaTextureObject_t emissive_tex;
 };
 
 struct Camera
@@ -129,6 +129,7 @@ struct aabb
     glm::vec3 bmin = glm::vec3(1e30f);
     glm::vec3 bmax = glm::vec3(-1e30f);
     void grow(glm::vec3 p) { bmin = glm::min(bmin, p), bmax = glm::max(bmax, p); }
+    void grow(aabb& b) { if (b.bmin.x != 1e30f) { grow(b.bmin); grow(b.bmax); } }
     float area()
     {
         glm::vec3 e = bmax - bmin; // box extent

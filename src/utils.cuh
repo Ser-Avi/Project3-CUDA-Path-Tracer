@@ -47,6 +47,24 @@ namespace Utils
 
     __device__ glm::vec4 sampleTexture(cudaTextureObject_t tex, glm::vec2 uv);
 
+    DEV_INLINE float Cos2Theta(glm::vec3 w) { return w.z * w.z; }
+    DEV_INLINE float CosTheta(glm::vec3 w) { return w.z; }
+    DEV_INLINE float Sin2Theta(glm::vec3 w) { return glm::max(0.f, 1.f - Cos2Theta(w)); }
+    DEV_INLINE float SinTheta(glm::vec3 w) { return sqrt(Sin2Theta(w)); }
+    DEV_INLINE float TanTheta(glm::vec3 w) { return SinTheta(w) / CosTheta(w); }
+    DEV_INLINE float Tan2Theta(glm::vec3 w) { return Sin2Theta(w) / Cos2Theta(w); }
+    DEV_INLINE float CosPhi(glm::vec3 w) {
+        float sinTheta = SinTheta(w);
+        return (sinTheta == 0) ? 1 : glm::clamp(w.x / sinTheta, -1.f, 1.f);
+    }
+    DEV_INLINE float SinPhi(glm::vec3 w) {
+        float sinTheta = SinTheta(w);
+        return (sinTheta == 0) ? 0 : glm::clamp(w.y / sinTheta, -1.f, 1.f);
+    }
+    DEV_INLINE float Cos2Phi(glm::vec3 w) { return CosPhi(w) * CosPhi(w); }
+    DEV_INLINE float Sin2Phi(glm::vec3 w) { return SinPhi(w) * SinPhi(w); }
+
+
     /// <summary>
     /// Creates the basis vectors based on a given normal n.
     /// I got this from https://graphics.pixar.com/library/OrthonormalB/paper.pdf
@@ -64,6 +82,62 @@ namespace Utils
         b1 = glm::vec3(1.0f + sign * n.x * n.x * a, sign * b, -sign * n.x);
         b2 = glm::vec3(b, sign + n.y * n.y * a, -n.y);
     }
+
+    /// <summary>
+    /// Using the branchlessONB above, this gives the local version of a vector
+    /// </summary>
+    /// <param name="vector"></param>
+    /// <param name="normal"></param>
+    /// <returns></returns>
+    DEV_INLINE glm::vec3 WorldToLocal(const glm::vec3& vector, const glm::vec3& normal)
+    {
+        glm::vec3 b1, b2;
+        branchlessONB(normal, b1, b2);
+
+        return glm::vec3(
+            glm::dot(vector, b1),
+            glm::dot(vector, b2),
+            glm::dot(vector, normal)
+        );
+    }
+    
+    /// <summary>
+    /// Using the branchlessONB above, this gives the global version of a vector
+    /// </summary>
+    /// <param name="localVector"></param>
+    /// <returns></returns>
+    DEV_INLINE glm::vec3 LocalToWorld(const glm::vec3& localVector, const glm::vec3& normal)
+    {
+        glm::vec3 b1, b2;
+        branchlessONB(normal, b1, b2);
+
+        // For local-to-world: linear combination of basis vectors
+        return localVector.x * b1 + localVector.y * b2 + localVector.z * normal;
+    }
+
+    DEV_INLINE glm::vec3 getWH(glm::vec3 wo, glm::vec2 xi, float roughness)
+    {
+        glm::vec3 wh;
+
+        float cosTheta = 0;
+        float phi = TWO_PI * xi[1];
+        // We'll only handle isotropic microfacet materials
+        float tanTheta2 = roughness * roughness * xi[0] / (1.0f - xi[0]);
+        cosTheta = 1 / sqrt(1 + tanTheta2);
+
+        float sinTheta = glm::sqrt(glm::max(0.f, 1.f - cosTheta * cosTheta));
+
+        wh = glm::vec3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
+        if (!(wo.z * wh.z > 0)) { wh = -wh; }
+
+        return wh;
+    }
+
+    __device__ float Lambda(const glm::vec3& w, const float roughness);
+    __device__ float TrowbridgeReitzD(const glm::vec3& wh, const float roughness);
+    __device__ float TrowbridgeReitzG(const glm::vec3& wo, const glm::vec3& wi, const float roughness);
+
+    __device__ float TrowbridgeReitzPdf(const glm::vec3& wo, const glm::vec3& wh, const float roughness);
 }
 
 namespace PBR
@@ -268,7 +342,7 @@ namespace PBR
 
             seg->remainingBounces--;
             glm::vec3 p = seg->ray.origin + seg->ray.direction * intersection.t;
-            seg->ray.origin = p + wi * EPSILON * 500.f;   // this 5 is creating an inside band but without it my rays can get really stuck :(
+            seg->ray.origin = p + wi * EPSILON * 500.f;   // this 500 is making this work somewhat, but it is still a bit buggy
             seg->ray.direction = wi;
             seg->color *= materialColor;
         }
@@ -285,35 +359,69 @@ namespace PBR
         {
             PathSegment* seg = &pathSegments[idx];
             if (seg->remainingBounces < 1) return;
-            seg->remainingBounces = 0;
             ShadeableIntersection* intSect = &shadeableIntersections[idx];
             glm::vec2 uv = intSect->uv;
             Material mat = materials[intSect->materialId];
             glm::vec3 albedo = mat.color;
-            glm::vec3 nor = intSect->surfaceNormal;
+            glm::vec3 norW = intSect->surfaceNormal;
             float metallic = mat.metallic;
             float roughness = mat.roughness;
             float ao = 1.;
-            handleMaterialMaps(&mat, uv, albedo, metallic, roughness, ao, nor);
-            glm::vec3 wo = -seg->ray.direction;
+            handleMaterialMaps(&mat, uv, albedo, metallic, roughness, ao, norW);
+            glm::vec3 woWorld = -seg->ray.direction;
+            //glm::vec3 wo = Utils::WorldToLocal(woWorld, norW);
+            //glm::vec3 up = glm::vec3(0, 1, 0);
             
             // Actual PBR stuff
             glm::vec3 R = glm::mix(glm::vec3(0.04f), albedo, metallic);
-            glm::vec3 kS = fresnelShlickRoughness(abs(dot(nor, wo)), R, roughness);
+            glm::vec3 kS = fresnelShlickRoughness(abs(dot(norW, woWorld)), R, roughness);
             glm::vec3 kD = 1.0f - kS;
             kD *= 1.0 - metallic;
 
             thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, seg->remainingBounces);
             thrust::uniform_real_distribution<float> u01(0, 1);
-            glm::vec3 wi = calculateRandomDirectionInHemisphere(intSect->surfaceNormal, rng);
+            glm::vec3 wiSpec = glm::reflect(-woWorld, norW);
+            glm::vec3 wiDiff = calculateRandomDirectionInHemisphere(intSect->surfaceNormal, rng);
+            // random direction
+            glm::vec3 xi = glm::vec3(u01(rng), u01(rng), u01(rng));
 
-            seg->color *= albedo;
+            glm::vec3 wiFin;
 
+            // in practice, we use kS as a lerp between specular and diffuse
+            // however, we have to decide here, so I will be using its length
+            // to decide which way to go and multiply by 2 to offset this distinct split.
+            // hoping it works
+
+            // now we do some branching and pray we did it all right
+            if (glm::length(kS) > glm::length(xi))
+            {
+
+                glm::vec3 wh = glm::normalize(wiSpec + woWorld);
+                float D = Utils::TrowbridgeReitzD(wh, roughness);
+                float G = Utils::TrowbridgeReitzG(woWorld, wiSpec, roughness);
+                /*wiFin = Utils::LocalToWorld(wiSpec);*/
+                wiFin = wiSpec;
+                albedo = glm::vec3(1.);
+                // albedo is changed with the D and G terms -> incorporates roughness
+                albedo *= kS * D + G;
+            }
+            else
+            {
+                wiFin = wiDiff;
+                albedo *= glm::max(glm::dot(norW, wiFin), 0.f);
+                //wiFin = Utils::LocalToWorld(wiDiff);
+                // NOTE: maybe should have irradiance term somehow?
+                // also, maybe shouldn't have absdot term
+                albedo *= kD;
+            }
+            //albedo *= ao;
             // then we bounce a new ray
+            //wiFin = Utils::LocalToWorld(wiFin, norW);
             seg->remainingBounces--;
             glm::vec3 p = seg->ray.origin + seg->ray.direction * intSect->t;
-            seg->ray.origin = p + intSect->surfaceNormal * EPSILON;
-            seg->ray.direction = wi;
+            seg->ray.origin = p + norW * EPSILON;
+            seg->ray.direction = wiFin;
+            seg->color *= albedo;
         }
     }
 

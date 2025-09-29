@@ -276,7 +276,7 @@ __global__ void computeIntersections(
 
         t = FLT_MAX;
 
-        t = IntersectBVH(pathSegment->ray, 0, BVHs, triIndices, triangles, t, tmp_intersect, tmp_normal, tmp_uv, outside, idx);
+        t = IntersectBVH_Naive(pathSegment->ray, 0, BVHs, triIndices, triangles, t, tmp_intersect, tmp_normal, tmp_uv, outside, idx);
 
         if (t > 0.0f && t_min > t)
         {
@@ -577,6 +577,7 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
                     checkCUDAError("dielectric");
                     break;
                 case PBR_MAT:
+                    //PBR::kernShadeDiffuse << <numblocks, blockSize1d >> > (iter, count, dev_intersections + start, dev_paths + start, dev_materials);
                     PBR::kernShadePBR << <numblocks, blockSize1d >> > (iter, num_paths, dev_intersections + start, dev_paths + start, dev_PBRmaterials);
                     checkCUDAError("PBR");
                     break;

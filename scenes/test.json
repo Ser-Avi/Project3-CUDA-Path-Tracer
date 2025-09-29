@@ -5,7 +5,7 @@
         {
             "TYPE":"Emitting",
             "RGB":[1.0, 1.0, 1.0],
-            "EMITTANCE":15.0
+            "EMITTANCE":20.0
         },
         "diffuse_black":
         {
@@ -13,7 +13,7 @@
             "RGB":[0.0, 0.0, 0.0]
         }
     },
-    "GLTF": ["../scenes/CesiumMan/CesiumMan.gltf"],
+    "GLTF": ["../scenes/Balls/MetalRoughSpheres.gltf"],
     "Camera":
     {
         "RES":[800,800],
@@ -30,14 +30,14 @@
         {
             "TYPE":"cube",
             "MATERIAL":"light",
-            "TRANS":[0.0,20.0,0.0],
+            "TRANS":[0.0,10.0,0.0],
             "ROTAT":[0.0,0.0,0.0],
             "SCALE":[6.0,0.3,6.0]
         },
         {
             "TYPE":"cube",
             "MATERIAL":"diffuse_black",
-            "TRANS":[-1.0,0.0,0.0],
+            "TRANS":[-100.0,0.0,0.0],
             "ROTAT":[0.0,0.0,0.0],
             "SCALE":[0.01,10.0,10.0]
         }

@@ -1,6 +1,7 @@
 #include "GLTFManager.h"
 
 #define BalancedBVH true
+#define BuildFastBVH true
 
 
 TextureLoader::TextureLoader() = default;
@@ -122,16 +123,20 @@ namespace BVH
         // populate triangle index array
         for (int i = 0; i < N; i++) triIdx[i] = i;
         // calculate triangle centroids for partitioning
-        for (int i = 0; i < N; i++)
-        {
-            tri[i].centroid = glm::vec3(tri[i].v0 + tri[i].v1 + tri[i].v2) * 0.3333f;
-        }
+        //for (int i = 0; i < N; i++)
+        //{
+        //    tri[i].centroid = glm::vec3(tri[i].v0 + tri[i].v1 + tri[i].v2) * 0.3333f;
+        //}
         // assign all triangles to root node
         BVHNode& root = bvhNode[0];
         root.leftFirst = 0, root.triCount = N;
         UpdateNodeBounds(0, triIdx, tri, bvhNode);
         // subdivide recursively
+#if BuildFastBVH
+        Subdivide_Fast(0, triIdx, tri, bvhNode, nodesUsed);
+#else
         Subdivide(0, triIdx, tri, bvhNode, nodesUsed);
+#endif
     }
 
     void UpdateNodeBounds(uint32_t nodeIdx, std::vector<int>& triIdx, std::vector<Triangle>& tri, std::vector<BVHNode>& bvhNode)
@@ -161,7 +166,8 @@ namespace BVH
         for (uint32_t i = 0; i < node.triCount; i++)
         {
             Triangle& triangle = tri[triIdx[node.leftFirst + i]];
-            if (triangle.centroid[axis] < pos)
+            glm::vec3 centroid = glm::vec3(triangle.v0 + triangle.v1 + triangle.v2) * 0.3333f;
+            if (centroid[axis] < pos)
             {
                 leftCount++;
                 leftBox.grow(triangle.v0);
@@ -191,7 +197,8 @@ namespace BVH
         for (int axis = 0; axis < 3; axis++) for (uint32_t i = 0; i < node.triCount; i++)
         {
             Triangle& triangle = tri[triIdx[node.leftFirst + i]];
-            float candidatePos = triangle.centroid[axis];
+            glm::vec3 centroid = glm::vec3(triangle.v0 + triangle.v1 + triangle.v2) * 0.3333f;
+            float candidatePos = centroid[axis];
             float cost = EvaluateSAH(node, axis, candidatePos, triIdx, tri);
             if (cost < bestCost)
                 bestPos = candidatePos, bestAxis = axis, bestCost = cost;
@@ -224,7 +231,9 @@ namespace BVH
         int j = i + node.triCount - 1;
         while (i <= j)
         {
-            if (tri[triIdx[i]].centroid[axis] < splitPos - EPSILON)
+            Triangle triangle = tri[triIdx[i]];
+            glm::vec3 centroid = glm::vec3(triangle.v0 + triangle.v1 + triangle.v2) * 0.3333f;
+            if (centroid[axis] < splitPos - EPSILON)
             {
                 i++;
             }
@@ -236,12 +245,12 @@ namespace BVH
         }
         // abort split if one of the sides is empty
         int leftCount = i - node.leftFirst;
-        printf("Left Count: %d, triangles: %d\n", leftCount, node.triCount);
+        //printf("Left Count: %d, triangles: %d\n", leftCount, node.triCount);
         if (leftCount == 0 || leftCount == node.triCount) return;
         // create child nodes
         int leftChildIdx = nodesUsed++;
         int rightChildIdx = nodesUsed++;
-        std::cout << "Nodes used: " << nodesUsed << std::endl;
+        //std::cout << "Nodes used: " << nodesUsed << std::endl;
         bvhNode[leftChildIdx].leftFirst = node.leftFirst;
         bvhNode[leftChildIdx].triCount = leftCount;
         bvhNode[rightChildIdx].leftFirst = i;
@@ -253,6 +262,111 @@ namespace BVH
         // recurse
         Subdivide(leftChildIdx, triIdx, tri, bvhNode, nodesUsed);
         Subdivide(rightChildIdx, triIdx, tri, bvhNode, nodesUsed);
+    }
+
+
+    void Subdivide_Fast(uint32_t nodeIdx, std::vector<int>& triIdx, std::vector<Triangle>& tri, std::vector<BVHNode>& bvhNode, int& nodesUsed)
+    {
+        // terminate recursion
+        BVHNode& node = bvhNode[nodeIdx];
+        // determine split axis using SAH
+        int axis;
+        float splitPos;
+        float splitCost = FindBestSplitPlane(node, axis, splitPos, triIdx, tri);
+        float nosplitCost = CalculateNodeCost(node);
+        if (splitCost >= nosplitCost) return;
+        // in-place partition
+        int i = node.leftFirst;
+        int j = i + node.triCount - 1;
+        while (i <= j)
+        {
+            Triangle& triangle = tri[triIdx[i]];
+            glm::vec3 centroid = glm::vec3(triangle.v0 + triangle.v1 + triangle.v2) * 0.3333f;
+            if (centroid[axis] < splitPos)
+                i++;
+            else
+                std::swap(triIdx[i], triIdx[j--]);
+        }
+        // abort split if one of the sides is empty
+        int leftCount = i - node.leftFirst;
+        if (leftCount == 0 || leftCount == node.triCount) return;
+        // create child nodes
+        int leftChildIdx = nodesUsed++;
+        int rightChildIdx = nodesUsed++;
+        bvhNode[leftChildIdx].leftFirst = node.leftFirst;
+        bvhNode[leftChildIdx].triCount = leftCount;
+        bvhNode[rightChildIdx].leftFirst = i;
+        bvhNode[rightChildIdx].triCount = node.triCount - leftCount;
+        node.leftFirst = leftChildIdx;
+        node.triCount = 0;
+        UpdateNodeBounds(leftChildIdx, triIdx, tri, bvhNode);
+        UpdateNodeBounds(rightChildIdx, triIdx, tri, bvhNode);
+        // recurse
+        Subdivide_Fast(leftChildIdx, triIdx, tri, bvhNode, nodesUsed);
+        Subdivide_Fast(rightChildIdx, triIdx, tri, bvhNode, nodesUsed);
+    }
+
+    float CalculateNodeCost(BVHNode& node)
+    {
+        glm::vec3 e = node.aabbMax - node.aabbMin; // extent of the node
+        float surfaceArea = e.x * e.y + e.y * e.z + e.z * e.x;
+        return node.triCount * surfaceArea;
+    }
+
+#define BINS 8
+    float FindBestSplitPlane(BVHNode& node, int& axis, float& splitPos, std::vector<int>& triIdx, std::vector<Triangle>& tri)
+    {
+        float bestCost = 1e30f;
+        for (int a = 0; a < 3; a++)
+        {
+            float boundsMin = 1e30f, boundsMax = -1e30f;
+            for (uint32_t i = 0; i < node.triCount; i++)
+            {
+                Triangle& triangle = tri[triIdx[node.leftFirst + i]];
+                glm::vec3 centroid = glm::vec3(triangle.v0 + triangle.v1 + triangle.v2) * 0.3333f;
+                boundsMin = glm::min(boundsMin, centroid[a]);
+                boundsMax = glm::max(boundsMax, centroid[a]);
+            }
+            if (boundsMin == boundsMax) continue;
+            // populate the bins
+            Bin bin[BINS];
+            float scale = BINS / (boundsMax - boundsMin);
+            for (uint32_t i = 0; i < node.triCount; i++)
+            {
+                Triangle& triangle = tri[triIdx[node.leftFirst + i]];
+                glm::vec3 centroid = glm::vec3(triangle.v0 + triangle.v1 + triangle.v2) * 0.3333f;
+                int binIdx = glm::min(BINS - 1, (int)((centroid[a] - boundsMin) * scale));
+                bin[binIdx].triCount++;
+                bin[binIdx].bounds.grow(triangle.v0);
+                bin[binIdx].bounds.grow(triangle.v1);
+                bin[binIdx].bounds.grow(triangle.v2);
+            }
+            // gather data for the 7 planes between the 8 bins
+            float leftArea[BINS - 1], rightArea[BINS - 1];
+            int leftCount[BINS - 1], rightCount[BINS - 1];
+            aabb leftBox, rightBox;
+            int leftSum = 0, rightSum = 0;
+            for (int i = 0; i < BINS - 1; i++)
+            {
+                leftSum += bin[i].triCount;
+                leftCount[i] = leftSum;
+                leftBox.grow(bin[i].bounds);
+                leftArea[i] = leftBox.area();
+                rightSum += bin[BINS - 1 - i].triCount;
+                rightCount[BINS - 2 - i] = rightSum;
+                rightBox.grow(bin[BINS - 1 - i].bounds);
+                rightArea[BINS - 2 - i] = rightBox.area();
+            }
+            // calculate SAH cost for the 7 planes
+            scale = (boundsMax - boundsMin) / BINS;
+            for (int i = 0; i < BINS - 1; i++)
+            {
+                float planeCost = leftCount[i] * leftArea[i] + rightCount[i] * rightArea[i];
+                if (planeCost < bestCost)
+                    axis = a, splitPos = boundsMin + scale * (i + 1), bestCost = planeCost;
+            }
+        }
+        return bestCost;
     }
 }
 
@@ -339,7 +453,8 @@ GLTFLoader::MaterialData GLTFLoader::processMaterial(const tinygltf::Material& m
     MaterialData material;
 
     // Base color factor
-    if (mat.pbrMetallicRoughness.baseColorFactor.size() == 4) {
+    if (mat.pbrMetallicRoughness.baseColorFactor.size() == 4)
+    {
         for (int i = 0; i < 4; i++) {
             material.base_color[i] = static_cast<float>(mat.pbrMetallicRoughness.baseColorFactor[i]);
         }
@@ -349,6 +464,7 @@ GLTFLoader::MaterialData GLTFLoader::processMaterial(const tinygltf::Material& m
     material.metallic = static_cast<float>(mat.pbrMetallicRoughness.metallicFactor);
     material.roughness = static_cast<float>(mat.pbrMetallicRoughness.roughnessFactor);
 
+    // base col
     if (mat.pbrMetallicRoughness.baseColorTexture.index >= 0) {
         int tex_index = mat.pbrMetallicRoughness.baseColorTexture.index;
         if (tex_index < model.textures.size()) {
@@ -357,11 +473,41 @@ GLTFLoader::MaterialData GLTFLoader::processMaterial(const tinygltf::Material& m
                 const auto& image = model.images[texture.source];
                 if (!image.uri.empty() && image.uri.find("data:") == std::string::npos) {
                     material.base_color_texture_path = dir + image.uri;
+                    std::cout << "  Found base color texture: " << material.base_color_texture_path << std::endl;
                 }
             }
         }
     }
 
+    // ao rough metal -> rgb
+    if (mat.pbrMetallicRoughness.metallicRoughnessTexture.index >= 0) {
+        int tex_index = mat.pbrMetallicRoughness.metallicRoughnessTexture.index;
+        if (tex_index < model.textures.size()) {
+            const auto& texture = model.textures[tex_index];
+            if (texture.source >= 0 && texture.source < model.images.size()) {
+                const auto& image = model.images[texture.source];
+                if (!image.uri.empty() && image.uri.find("data:") == std::string::npos) {
+                    material.metallic_roughness_texture_path = dir + image.uri;
+                    std::cout << "  Found metallic-roughness texture: " << material.metallic_roughness_texture_path << std::endl;
+                }
+            }
+        }
+    }
+
+    // normal
+    if (mat.normalTexture.index >= 0) {
+        int tex_index = mat.normalTexture.index;
+        if (tex_index < model.textures.size()) {
+            const auto& texture = model.textures[tex_index];
+            if (texture.source >= 0 && texture.source < model.images.size()) {
+                const auto& image = model.images[texture.source];
+                if (!image.uri.empty() && image.uri.find("data:") == std::string::npos) {
+                    material.normal_texture_path = dir + image.uri;
+                    std::cout << "  Found normal texture: " << material.normal_texture_path << std::endl;
+                }
+            }
+        }
+    }
     return material;
 }
 
@@ -496,12 +642,12 @@ bool GLTFManager::addScene(const GLTFLoader& loader, TextureLoader& texture_load
         cuda_mat.color = glm::vec3(mat.base_color[0], mat.base_color[1], mat.base_color[2]);
         cuda_mat.metallic = mat.metallic;
         cuda_mat.roughness = mat.roughness;
+        cuda_mat.ao = mat.ao;
 
         // Load textures
         cuda_mat.base_color_tex = texture_loader.getTexture(mat.base_color_texture_path);
         cuda_mat.metallic_roughness_tex = texture_loader.getTexture(mat.metallic_roughness_texture_path);
         cuda_mat.normal_tex = texture_loader.getTexture(mat.normal_texture_path);
-        cuda_mat.emissive_tex = texture_loader.getTexture(mat.emissive_texture_path);
 
         host_materials.push_back(cuda_mat);
     }

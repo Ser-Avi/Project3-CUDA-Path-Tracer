@@ -80,9 +80,17 @@ __host__ __device__ float triangleIntersectionTest(
     glm::vec2& uv,
     bool& outside);
 
-__device__ bool IntersectAABB(const Ray& ray, const glm::vec3 bmin, const glm::vec3 bmax, float temp_T);
+__device__ bool IntersectAABB_Naive(const Ray& ray, const glm::vec3 bmin, const glm::vec3 bmax, float temp_T);
 
-__device__ float IntersectBVH(Ray& ray, const uint32_t nodeIdx, BVHNode* bvhNode, int* triIdx, Triangle* tri, float temp_t,
+__device__ float IntersectAABB_Dist(const Ray& ray, const glm::vec3 bmin, const glm::vec3 bmax, float temp_T);
+
+__device__ float IntersectBVH_Naive(Ray& ray, const uint32_t nodeIdx, BVHNode* bvhNode, int* triIdx, Triangle* tri, float temp_t,
+    glm::vec3& intersectionPoint,
+    glm::vec3& normal,
+    glm::vec2& uv,
+    bool& outside, int& idx);
+
+__device__ float IntersectBVH_Dist(Ray& ray, const uint32_t nodeIdx, BVHNode* bvhNode, int* triIdx, Triangle* tri, float temp_t,
     glm::vec3& intersectionPoint,
     glm::vec3& normal,
     glm::vec2& uv,

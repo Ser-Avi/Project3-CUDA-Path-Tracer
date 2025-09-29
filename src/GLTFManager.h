@@ -38,14 +38,18 @@ private:
 };
 
 /// <summary>
-/// This BVH method comes from the following blog:
+/// This BVH method comes from the following blog, parts 1 through 3
 /// https://jacco.ompf2.com/2022/04/13/how-to-build-a-bvh-part-1-basics/
 /// </summary>
 namespace BVH
 {
+    struct Bin { aabb bounds; int triCount = 0; };
     void BuildBVH(int N, std::vector<int>& triIdx, std::vector<Triangle>& tri, std::vector<BVHNode>& bvhNode, int& nodesUsed);
     void UpdateNodeBounds(uint32_t nodeIdx, std::vector<int>& triIdx, std::vector<Triangle>& tri, std::vector<BVHNode>& bvhNode);
     void Subdivide(uint32_t nodeIdx, std::vector<int>& triIdx, std::vector<Triangle>& tri, std::vector<BVHNode>& bvhNode, int& nodesUsed);
+    void Subdivide_Fast(uint32_t nodeIdx, std::vector<int>& triIdx, std::vector<Triangle>& tri, std::vector<BVHNode>& bvhNode, int& nodesUsed);
+    float FindBestSplitPlane(BVHNode& node, int& axis, float& splitPos, std::vector<int>& triIdx, std::vector<Triangle>& tri);
+    float CalculateNodeCost(BVHNode& node);
 }
 
 class GLTFLoader {
@@ -62,11 +66,11 @@ public:
         float base_color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
         float metallic = 0.0f;
         float roughness = 1.0f;
+        float ao;
         // Paths to external textures
         std::string base_color_texture_path;
         std::string metallic_roughness_texture_path;
         std::string normal_texture_path;
-        std::string emissive_texture_path;
     };
 
     struct TextureData {
