@@ -191,6 +191,33 @@ void Scene::loadFromGLTF()
     std::cout << "Total triangles: " << gltfManager.getNumTriangles() << std::endl;
     std::cout << "Total materials: " << gltfManager.getNumMaterials() << std::endl;
     std::cout << "BVH Triangles: " << numTri << std::endl;
-    std::cout << "BVH Nodes: " << numbvh << std::endl;
-    std::cout << "Nodes used tho: " << nodesU << std::endl;
+    std::cout << "BVH Nodes inittialized: " << numbvh << std::endl;
+    std::cout << "Nodes used: " << nodesU << std::endl;
+}
+
+bool Scene::loadEnvironmentMap(const std::string& hdr_filename) {
+    if (curr_env_map.name != "")
+    {
+        // if we have one already loaded -> clear it
+        clearEnvironmentMap();
+    }
+
+    curr_env_map = textLoader.loadEnvMap(hdr_filename);
+    if (curr_env_map.texture == 0) {
+        std::cerr << "Failed to load environment map: " << hdr_filename << std::endl;
+        return false;
+    }
+    curr_env_map.name = hdr_filename;
+    printf("Environment map %s loaded: %d x %d\n", curr_env_map.name.c_str(), curr_env_map.width, curr_env_map.height);
+    return true;
+}
+
+void Scene::clearEnvironmentMap() {
+    if (curr_env_map.texture != 0) {
+        cudaDestroyTextureObject(curr_env_map.texture);
+        if (curr_env_map.data) {
+            stbi_image_free(curr_env_map.data);
+        }
+    }
+    curr_env_map = EnvMap{ 0, "", 0, 0, nullptr};
 }

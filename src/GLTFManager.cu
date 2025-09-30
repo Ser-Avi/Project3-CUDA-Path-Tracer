@@ -3,7 +3,6 @@
 #define BalancedBVH true
 #define BuildFastBVH true
 
-
 TextureLoader::TextureLoader() = default;
 
 TextureLoader::~TextureLoader() {
@@ -100,6 +99,139 @@ cudaTextureObject_t TextureLoader::createTextureFromData(const unsigned char* da
     return tex_obj;
 }
 
+EnvMap TextureLoader::loadEnvMap(const std::string& filename) {
+    // Check cache first
+    auto it = hdr_cache.find(filename);
+    if (it != hdr_cache.end()) {
+        return it->second;
+    }
+
+    std::cout << "Loading HDR environment map: " << filename << std::endl;
+
+    // Load HDR using stb_image
+    int width, height, channels;
+    float* hdr_data = stbi_loadf(filename.c_str(), &width, &height, &channels, 0);
+
+    if (!hdr_data) {
+        std::cerr << "Failed to load HDR file: " << filename << std::endl;
+        return EnvMap{ 0, "", 0, 0, nullptr};
+    }
+
+    std::cout << "HDR loaded: " << width << "x" << height << ", channels: " << channels << std::endl;
+
+    // Create CUDA texture from HDR data
+    cudaTextureObject_t tex_obj = createTextureFromFloatData(hdr_data, width, height, channels);
+
+    EnvMap env_map;
+    env_map.texture = tex_obj;
+    env_map.width = width;
+    env_map.height = height;
+    env_map.data = hdr_data;  // Keep CPU data for importance sampling
+
+    if (tex_obj != 0) {
+        hdr_cache[filename] = env_map;
+        std::cout << "Created HDR environment map texture: " << tex_obj << std::endl;
+    }
+    else {
+        stbi_image_free(hdr_data);
+    }
+
+    return env_map;
+}
+
+EnvMap TextureLoader::getEnvMap(const std::string& filename) {
+    return loadEnvMap(filename);
+}
+
+cudaTextureObject_t TextureLoader::createTextureFromFloatData(const float* data,
+    int width, int height, int channels) {
+    cudaTextureObject_t tex_obj = 0;
+    cudaArray_t cu_array = nullptr;
+
+    cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc<float4>();
+
+    // Create CUDA array
+    cudaError_t err = cudaMallocArray(&cu_array, &channel_desc, width, height);
+    if (err != cudaSuccess) {
+        std::cerr << "Failed to allocate CUDA array for HDR: " << cudaGetErrorString(err) << std::endl;
+        return 0;
+    }
+
+    // If 3 channels, force a 4th
+    if (channels == 3) {
+        std::vector<float4> rgba_data(width * height);
+        for (int i = 0; i < width * height; i++) {
+            rgba_data[i] = make_float4(
+                data[i * 3], 
+                data[i * 3 + 1],  
+                data[i * 3 + 2],
+                1.0f          // force alpha to 1
+            );
+        }
+
+        // Copy data
+        size_t pitch = width * sizeof(float4);
+        err = cudaMemcpy2DToArray(cu_array, 0, 0, rgba_data.data(), pitch,
+            width * sizeof(float4), height,
+            cudaMemcpyHostToDevice);
+    }
+    else if (channels == 4) {
+        // Already 4 channels, copy directly
+        size_t pitch = width * sizeof(float4);
+        err = cudaMemcpy2DToArray(cu_array, 0, 0, data, pitch,
+            width * sizeof(float4), height,
+            cudaMemcpyHostToDevice);
+    }
+    else {
+        std::cerr << "Unsupported HDR channel count: " << channels << std::endl;
+        cudaFreeArray(cu_array);
+        return 0;
+    }
+
+    if (err != cudaSuccess) {
+        std::cerr << "Failed to copy HDR data: " << cudaGetErrorString(err) << std::endl;
+        cudaFreeArray(cu_array);
+        return 0;
+    }
+
+    // Create resource description
+    cudaResourceDesc res_desc = {};
+    res_desc.resType = cudaResourceTypeArray;
+    res_desc.res.array.array = cu_array;
+
+    // Create texture description for HDR (different from regular textures!)
+    cudaTextureDesc tex_desc = {};
+    tex_desc.addressMode[0] = cudaAddressModeWrap;       // Repeat for environment maps
+    tex_desc.addressMode[1] = cudaAddressModeClamp;      // Clamp in vertical direction
+    tex_desc.filterMode = cudaFilterModeLinear;          // Bilinear filtering
+    tex_desc.readMode = cudaReadModeElementType;         // Keep as float - not normalized
+    tex_desc.normalizedCoords = 1;                       // Use [0,1] coordinates
+    tex_desc.maxAnisotropy = 1;
+
+    // Create texture object
+    err = cudaCreateTextureObject(&tex_obj, &res_desc, &tex_desc, nullptr);
+    if (err != cudaSuccess) {
+        std::cerr << "Failed to create HDR texture object: " << cudaGetErrorString(err) << std::endl;
+        cudaFreeArray(cu_array);
+        return 0;
+    }
+
+    texture_arrays.push_back(cu_array);
+    return tex_obj;
+}
+
+void TextureLoader::cleanupEnvMap() {
+    for (auto& pair : hdr_cache) {
+        if (pair.second.texture != 0) {
+            cudaDestroyTextureObject(pair.second.texture);
+        }
+        if (pair.second.data != nullptr) {
+            stbi_image_free(pair.second.data);
+        }
+    }
+    hdr_cache.clear();
+}
+
 void TextureLoader::cleanup() {
     for (auto& pair : texture_cache) {
         if (pair.second != 0) {
@@ -108,6 +240,9 @@ void TextureLoader::cleanup() {
     }
     texture_cache.clear();
 
+    cleanupEnvMap();
+
+    // Cleanup arrays
     for (auto& array : texture_arrays) {
         if (array != nullptr) {
             cudaFreeArray(array);

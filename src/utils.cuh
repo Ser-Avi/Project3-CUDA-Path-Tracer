@@ -138,6 +138,17 @@ namespace Utils
     __device__ float TrowbridgeReitzG(const glm::vec3& wo, const glm::vec3& wi, const float roughness);
 
     __device__ float TrowbridgeReitzPdf(const glm::vec3& wo, const glm::vec3& wh, const float roughness);
+
+    DEV_INLINE glm::vec2 dirToUV(glm::vec3 dir) {
+        glm::vec2 uv = glm::vec2(glm::atan(dir.z, dir.x), glm::asin(dir.y));
+        glm::vec2 normalize_uv = glm::vec2(0.1591, 0.3183);
+        uv *= normalize_uv;
+        uv += 0.5;
+        uv.y = 1.f - uv.y;  // env map was flipped for some reason, so this flips it back
+        return uv;
+    }
+
+    __device__ glm::vec3 sampleEnvMap(cudaTextureObject_t env_map, glm::vec3 dir);
 }
 
 namespace PBR
@@ -178,14 +189,18 @@ namespace PBR
         int num_paths,
         ShadeableIntersection* shadeableIntersections,
         PathSegment* pathSegments,
-        Material* materials)
+        Material* materials, cudaTextureObject_t envMap)
     {
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
         if (idx < num_paths)
         {
             PathSegment* seg = &pathSegments[idx];
             if (seg->remainingBounces < 1) return;
-            seg->color = glm::vec3(0.);
+            // sample env map
+            glm::vec3 envCol = Utils::sampleEnvMap(envMap, seg->ray.direction);
+            //seg->color = (seg->ray.direction + glm::vec3(1.f)) * 0.5f;
+            seg->color *= envCol;
+            //seg->color *= glm::vec3(1., 0., 0.);
             seg->remainingBounces = 0;
         }
     }
@@ -383,17 +398,17 @@ namespace PBR
             glm::vec3 wiSpec = glm::reflect(-woWorld, norW);
             glm::vec3 wiDiff = calculateRandomDirectionInHemisphere(intSect->surfaceNormal, rng);
             // random direction
-            glm::vec3 xi = glm::vec3(u01(rng), u01(rng), u01(rng));
-
+            //glm::vec3 xi = glm::vec3(u01(rng), u01(rng), u01(rng));
+            float xi = u01(rng);
             glm::vec3 wiFin;
 
             // in practice, we use kS as a lerp between specular and diffuse
-            // however, we have to decide here, so I will be using its length
+            // however, we have to decide here, so I will be using its max value
             // to decide which way to go and multiply by 2 to offset this distinct split.
             // hoping it works
 
             // now we do some branching and pray we did it all right
-            if (glm::length(kS) > glm::length(xi))
+            if (glm::max(glm::max(kS.x, kS.y), kS.z) > xi)
             {
 
                 glm::vec3 wh = glm::normalize(wiSpec + woWorld);
@@ -404,6 +419,7 @@ namespace PBR
                 albedo = glm::vec3(1.);
                 // albedo is changed with the D and G terms -> incorporates roughness
                 albedo *= kS * D + G;
+                albedo /= kS;             // attenuate?
             }
             else
             {
@@ -413,6 +429,7 @@ namespace PBR
                 // NOTE: maybe should have irradiance term somehow?
                 // also, maybe shouldn't have absdot term
                 albedo *= kD;
+                albedo /= glm::vec3(1.f) - kS;    // attenuate?
             }
             //albedo *= ao;
             // then we bounce a new ray
@@ -429,13 +446,13 @@ namespace PBR
         int num_paths,
         ShadeableIntersection* shadeableIntersections,
         PathSegment* pathSegments,
-        Material* materials);
+        Material* materials, cudaTextureObject_t envMap);
 
     __global__ void kernShadeNosect(int iter,
         int num_paths,
         ShadeableIntersection* shadeableIntersections,
         PathSegment* pathSegments,
-        Material* materials);
+        Material* materials, cudaTextureObject_t envMap);
 
     __global__ void kernShadeDiffuse(int iter,
         int num_paths,

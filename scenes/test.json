@@ -27,19 +27,6 @@
     },
     "Objects":
     [
-        {
-            "TYPE":"cube",
-            "MATERIAL":"light",
-            "TRANS":[0.0,10.0,0.0],
-            "ROTAT":[0.0,0.0,0.0],
-            "SCALE":[6.0,0.3,6.0]
-        },
-        {
-            "TYPE":"cube",
-            "MATERIAL":"diffuse_black",
-            "TRANS":[-100.0,0.0,0.0],
-            "ROTAT":[0.0,0.0,0.0],
-            "SCALE":[0.01,10.0,10.0]
-        }
+
     ]
 }

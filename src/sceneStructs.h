@@ -136,3 +136,10 @@ struct aabb
         return e.x * e.y + e.y * e.z + e.z * e.x;
     }
 };
+
+struct EnvMap {
+    cudaTextureObject_t texture;
+    std::string name = "";   // used to keep track of existing one and for swapping - is just the filename
+    int width, height;
+    float* data;  // Raw HDR data
+};

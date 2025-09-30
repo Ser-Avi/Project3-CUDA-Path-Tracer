@@ -112,7 +112,7 @@ void InitDataContainer(GuiDataContainer* imGuiData)
     guiData = imGuiData;
 }
 
-void pathtraceInit(Scene* scene)
+void pathtraceInit(Scene* scene, const std::string& envMapPath)
 {
     hst_scene = scene;
 
@@ -143,6 +143,15 @@ void pathtraceInit(Scene* scene)
     {
         scene->loadFromGLTF();
     }
+    if (envMapPath != "" && scene->curr_env_map.name != envMapPath)
+    {
+        printf("Trynna load envMap from pathtrace.cu\n");
+        scene->loadEnvironmentMap(envMapPath);
+    }
+    else
+    {
+        printf("envmap loading skipped. Path: %s, Width: %d\n", envMapPath.c_str(), scene->curr_env_map.width);
+    }
     checkCUDAError("pathtraceInit");
 }
 
@@ -159,6 +168,7 @@ void pathtraceFree(bool camChange)
     if (hst_scene && !camChange)
     {
         hst_scene->gltfManager.cleanup();
+        hst_scene->clearEnvironmentMap();
     }
     checkCUDAError("pathtraceFree");
 }
@@ -306,8 +316,8 @@ __global__ void computeIntersections(
         {
             intersections[path_index].t = -1.0f;
             intersections[path_index].materialType = NONE;
-            pathSegment->color = glm::vec3(0.f);
-            pathSegment->remainingBounces = 0;
+            //pathSegment->color = glm::vec3(0.f);
+            pathSegment->remainingBounces = 1;
         }
         else
         {
@@ -433,6 +443,13 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
         std::cerr << "CUDA Kernel Error: " << cudaGetErrorString(err) << std::endl;
     }
 
+    cudaTextureObject_t envMap = hst_scene->curr_env_map.texture;
+    checkCUDAError("Enviroment Map Loading");
+    err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+        std::cerr << "CUDA Kernel Error: " << cudaGetErrorString(err) << std::endl;
+    }
+
     // 2D block for generating ray from camera
     const dim3 blockSize2d(8, 8);
     const dim3 blocksPerGrid2d(
@@ -533,7 +550,7 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
             
             // we can cull NONE materials here by simply setting num_paths to their start index (since they come last)
             // however this trick only works if there are NONE materials, hence the conditional
-            num_paths = hst_materialStartIndices[0] > 0 ? hst_materialStartIndices[0] : num_paths;
+            //num_paths = hst_materialStartIndices[0] > 0 ? hst_materialStartIndices[0] : num_paths;
 
             for (int mat = 0; mat < MATERIAL_NUM; ++mat)
             {
@@ -553,7 +570,7 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
                 switch (static_cast<MaterialType>(mat))
                 {
                 case NONE:
-                    PBR::kernShadeNosect << <numblocks, blockSize1d >> > (iter, count, dev_intersections + start, dev_paths + start, dev_materials);
+                    PBR::kernShadeNosect << <numblocks, blockSize1d >> > (iter, count, dev_intersections + start, dev_paths + start, dev_materials, envMap);
                     checkCUDAError("none");
                     break;
                 case EMISSIVE:
@@ -588,7 +605,7 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
                         count,
                         dev_intersections + count,
                         dev_paths + count,
-                        dev_materials
+                        dev_materials, envMap
                         );
                     break;
                 }
@@ -601,7 +618,7 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
                 num_paths,
                 dev_intersections,
                 dev_paths,
-                dev_materials
+                dev_materials, envMap
                 );
         }
 

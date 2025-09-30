@@ -37,6 +37,21 @@ namespace Utils
         return glm::vec4(text.x, text.y, text.z, text.w);
     }
 
+    __device__ glm::vec3 sampleEnvMap(cudaTextureObject_t env_map,
+        glm::vec3 dir) {
+        if (env_map < EPSILON || env_map > 1000) {
+            return glm::vec3(0.0f, 0.0f, 0.0f); // black if no map
+        }
+        glm::vec2 uv = dirToUV(dir);
+        if (uv.x > 1.f || uv.y > 1.f)
+        {
+            printf("ERROR: UV out of bounds! X: %f, Y: %f\n", uv.x, uv.y);
+            return glm::vec3(1.f, 0.f, 0.f);
+        }
+        float4 sample = tex2D<float4>(env_map, uv.x, uv.y);
+        return glm::vec3(sample.x, sample.y, sample.z);
+    }
+
     __device__ float Lambda(const glm::vec3& w, const float roughness)
     {
         float absTanTheta = abs(TanTheta(w));
@@ -78,7 +93,7 @@ namespace PBR
         int num_paths,
         ShadeableIntersection* shadeableIntersections,
         PathSegment* pathSegments,
-        Material* materials)
+        Material* materials, cudaTextureObject_t envMap)
     {
         int idx =  blockIdx.x * blockDim.x + threadIdx.x;
         if (idx > num_paths) return;
@@ -91,7 +106,7 @@ namespace PBR
         switch (matType)
         {
         case NONE:
-            inlineShadeNosect(iter, num_paths, shadeableIntersections, pathSegments, materials);
+            inlineShadeNosect(iter, num_paths, shadeableIntersections, pathSegments, materials, envMap);
             break;
         case DIFFUSE:
             inlineShadeDiffuse(iter, num_paths, shadeableIntersections, pathSegments, materials);
@@ -139,9 +154,9 @@ namespace PBR
         int num_paths,
         ShadeableIntersection* shadeableIntersections,
         PathSegment* pathSegments,
-        Material* materials)
+        Material* materials, cudaTextureObject_t envMap)
     {
-        inlineShadeNosect(iter, num_paths, shadeableIntersections, pathSegments, materials);
+        inlineShadeNosect(iter, num_paths, shadeableIntersections, pathSegments, materials, envMap);
     }
 
     __global__ void kernShadeDiffuse(int iter,

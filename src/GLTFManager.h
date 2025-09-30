@@ -20,20 +20,28 @@ public:
     TextureLoader();
     ~TextureLoader();
 
-    // Load a PNG texture and create CUDA texture object
+    // PNG texture funcs
     cudaTextureObject_t loadTexture(const std::string& filename);
-
-    // Get texture by filename (cached)
     cudaTextureObject_t getTexture(const std::string& filename);
+
+    // HDR Env map funcs
+    EnvMap loadEnvMap(const std::string& filename);
+    EnvMap getEnvMap(const std::string& filename);
+
 
     // Cleanup all textures
     void cleanup();
+    void cleanupEnvMap();
 
 private:
     cudaTextureObject_t createTextureFromData(const unsigned char* data,
         int width, int height, int channels);
 
+    cudaTextureObject_t createTextureFromFloatData(const float* data,
+        int width, int height, int channels);
+
     std::map<std::string, cudaTextureObject_t> texture_cache;
+    std::map<std::string, EnvMap> hdr_cache;
     std::vector<cudaArray_t> texture_arrays; // For cleanup
 };
 

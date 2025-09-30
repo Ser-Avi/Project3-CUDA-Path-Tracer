@@ -6,6 +6,6 @@
 #include "GLTFManager.h"
 
 void InitDataContainer(GuiDataContainer* guiData);
-void pathtraceInit(Scene *scene);
+void pathtraceInit(Scene *scene, const std::string& envMapPath);
 void pathtraceFree(bool camChange);
 void pathtrace(uchar4 *pbo, int frame, int iteration, bool isCompact, bool isMatSort, bool isStochastic);

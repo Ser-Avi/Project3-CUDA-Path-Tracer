@@ -69,6 +69,10 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
 bool isCompact = false;
 bool isMatSort = true;
 bool isStochastic = true;
+std::string envmapPath = "";
+std::string selectedPath = "";
+const char* mapNames[] = { "None", "Bridge", "Bonifacio Street", "Fireplace" };
+int mapIdx = 0;
 
 std::string currentTimeString()
 {
@@ -287,6 +291,50 @@ void RenderImGui()
     ImGui::Checkbox("Toggle Stream Compaction", &isCompact);
     ImGui::Checkbox("Toggle Material Sorting", &isMatSort);
     ImGui::Checkbox("Toggle Stochastic Sampling", &isStochastic);
+
+    // Environment Map selection
+    ImGui::Text("Environment Maps");
+    ImGui::Combo("", &mapIdx, mapNames, IM_ARRAYSIZE(mapNames));
+    switch (mapIdx)
+    {
+    case 0:
+        selectedPath = "";
+        if (envmapPath != selectedPath)
+        {
+            camchanged = true;
+            envmapPath = selectedPath;
+            scene->clearEnvironmentMap();
+        }
+        break;
+    case 1:
+        selectedPath = "../scenes/Environments/Bridge_3k.hdr";
+        if (envmapPath != selectedPath)
+        {
+            camchanged = true;
+            envmapPath = selectedPath;
+            scene->loadEnvironmentMap(envmapPath);
+        }
+        break;
+    case 2:
+        selectedPath = "../scenes/Environments/bonifacio_street.hdr";
+        if (envmapPath != selectedPath)
+        {
+            camchanged = true;
+            envmapPath = selectedPath;
+            scene->loadEnvironmentMap(envmapPath);
+        }
+        break;
+    case 3:
+        selectedPath = "../scenes/Environments/fireplace_4k.hdr";
+        if (envmapPath != selectedPath)
+        {
+            camchanged = true;
+            envmapPath = selectedPath;
+            scene->loadEnvironmentMap(envmapPath);
+        }
+        break;
+    }
+    
     //if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
     //    counter++;
     //ImGui::SameLine();
@@ -453,7 +501,7 @@ void runCuda()
     if (iteration == 0)
     {
         pathtraceFree(camchanged);
-        pathtraceInit(scene);
+        pathtraceInit(scene, envmapPath);
         if (camchanged) camchanged = false;
     }
 
@@ -493,7 +541,7 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
                 saveImage();
                 glfwSetWindowShouldClose(window, GL_TRUE);
                 break;
-            case GLFW_KEY_S:
+            case GLFW_KEY_X:
                 saveImage();
                 break;
             case GLFW_KEY_SPACE:
@@ -503,6 +551,33 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
                 cam.lookAt = ogLookAt;
                 break;
         }
+    }
+    switch (key)
+    {
+    case GLFW_KEY_A:
+        phi -= 0.02f;
+        camchanged = true;
+        break;
+    case GLFW_KEY_D:
+        phi += 0.02f;
+        camchanged = true;
+        break;
+    case GLFW_KEY_W:
+        zoom -= 0.1f;
+        camchanged = true;
+        break;
+    case GLFW_KEY_S:
+        zoom += 0.1f;
+        camchanged = true;
+        break;
+    case GLFW_KEY_Q:
+        theta -= 0.02f;
+        camchanged = true;
+        break;
+    case GLFW_KEY_E:
+        theta += 0.02f;
+        camchanged = true;
+        break;
     }
 }
 

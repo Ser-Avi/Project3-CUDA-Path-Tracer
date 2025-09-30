@@ -18,4 +18,9 @@ public:
     std::vector<Geom> geoms;
     std::vector<Material> materials;
     RenderState state;
+
+    // Env Map funcs
+    EnvMap curr_env_map;
+    bool loadEnvironmentMap(const std::string& hdr_filename);
+    void clearEnvironmentMap();
 };
