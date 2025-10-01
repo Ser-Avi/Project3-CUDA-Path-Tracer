@@ -93,10 +93,10 @@ namespace PBR
         int num_paths,
         ShadeableIntersection* shadeableIntersections,
         PathSegment* pathSegments,
-        Material* materials, cudaTextureObject_t envMap)
+        Material* materials, Material* pbr_materials, cudaTextureObject_t envMap)
     {
         int idx =  blockIdx.x * blockDim.x + threadIdx.x;
-        if (idx > num_paths) return;
+        if (idx > num_paths - 1) return;
 
         PathSegment* seg = &pathSegments[idx];
         if (seg->remainingBounces < 1) return;
@@ -106,19 +106,19 @@ namespace PBR
         switch (matType)
         {
         case NONE:
-            inlineShadeNosect(iter, num_paths, shadeableIntersections, pathSegments, materials, envMap);
+            inlineShadeNosect(&pathSegments[idx], envMap);
             break;
         case DIFFUSE:
-            inlineShadeDiffuse(iter, num_paths, shadeableIntersections, pathSegments, materials);
+            inlineShadeDiffuse(iter, idx, &shadeableIntersections[idx], &pathSegments[idx], materials);
             break;
         case EMISSIVE:
-            inlineShadeEmissive(iter, num_paths, shadeableIntersections, pathSegments, materials);
+            inlineShadeEmissive(&shadeableIntersections[idx], &pathSegments[idx], materials);
             break;
         case SPECULAR_REFL:
-            inlineShadeSpecularRefl(iter, num_paths, shadeableIntersections, pathSegments, materials);
+            inlineShadeSpecularRefl(&shadeableIntersections[idx], &pathSegments[idx], materials);
             break;
         case SPECULAR_TRANS:
-            inlineShadeSpecularTrans(iter, num_paths, shadeableIntersections, pathSegments, materials);
+            inlineShadeSpecularTrans(&shadeableIntersections[idx], &pathSegments[idx], materials);
             break;
         case DIELECTRIC:
             Material mat = materials[intsect->materialId];
@@ -129,19 +129,19 @@ namespace PBR
             // otherwise we will transmissive
             if (u01(rng) < mat.probReflVTrans)
             {
-                inlineShadeSpecularRefl(iter, num_paths, shadeableIntersections, pathSegments, materials);
+                inlineShadeSpecularRefl(&shadeableIntersections[idx], &pathSegments[idx], materials);
                 float cosThetaI = glm::dot(intsect->surfaceNormal, glm::normalize(seg->ray.direction));
                 seg->color *= 2.f * FresnelDielectricEval(cosThetaI, ior);
             }
             else
             {
-                inlineShadeSpecularTrans(iter, num_paths, shadeableIntersections, pathSegments, materials);
+                inlineShadeSpecularTrans(&shadeableIntersections[idx], &pathSegments[idx], materials);
                 float cosThetaI = glm::dot(intsect->surfaceNormal, glm::normalize(seg->ray.direction));
                 seg->color *= 2.f * (glm::vec3(1.f) - FresnelDielectricEval(cosThetaI, ior));
             }
             break;
         case PBR_MAT:
-            inlineShadePBR(iter, num_paths, shadeableIntersections, pathSegments, materials);   // I think this should have pbr mats
+            inlineShadePBR(iter, idx, &shadeableIntersections[idx], &pathSegments[idx], pbr_materials);   // I think this should have pbr mats
             break;
         default:
             // No material tag-> how did we even get here?
@@ -150,13 +150,12 @@ namespace PBR
         }
 
     }
-    __global__ void kernShadeNosect(int iter,
-        int num_paths,
-        ShadeableIntersection* shadeableIntersections,
-        PathSegment* pathSegments,
-        Material* materials, cudaTextureObject_t envMap)
+    __global__ void kernShadeNosect(int num_paths,
+        PathSegment* pathSegments, cudaTextureObject_t envMap)
     {
-        inlineShadeNosect(iter, num_paths, shadeableIntersections, pathSegments, materials, envMap);
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (idx > num_paths - 1) { return; }
+        inlineShadeNosect(&pathSegments[idx], envMap);
     }
 
     __global__ void kernShadeDiffuse(int iter,
@@ -165,34 +164,42 @@ namespace PBR
         PathSegment* pathSegments,
         Material* materials)
     {
-        inlineShadeDiffuse(iter, num_paths, shadeableIntersections, pathSegments, materials);
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (idx > num_paths - 1) return;
+        inlineShadeDiffuse(iter, idx, &shadeableIntersections[idx], &pathSegments[idx], materials);
     }
 
-    __global__ void kernShadeEmissive(int iter,
+    __global__ void kernShadeEmissive(
         int num_paths,
         ShadeableIntersection* shadeableIntersections,
         PathSegment* pathSegments,
         Material* materials)
     {
-        inlineShadeEmissive(iter, num_paths, shadeableIntersections, pathSegments, materials);
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (idx > num_paths - 1) return;
+        inlineShadeEmissive(&shadeableIntersections[idx], &pathSegments[idx], materials);
     }
 
-    __global__ void kernShadeSpecularRefl(int iter,
+    __global__ void kernShadeSpecularRefl(
         int num_paths,
         ShadeableIntersection* shadeableIntersections,
         PathSegment* pathSegments,
         Material* materials)
     {
-        inlineShadeSpecularRefl(iter, num_paths, shadeableIntersections, pathSegments, materials);
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (idx > num_paths - 1) return;
+        inlineShadeSpecularRefl(&shadeableIntersections[idx], &pathSegments[idx], materials);
     }
 
-    __global__ void kernShadeSpecularTrans(int iter,
+    __global__ void kernShadeSpecularTrans(
         int num_paths,
         ShadeableIntersection* shadeableIntersections,
         PathSegment* pathSegments,
         Material* materials)
     {
-        inlineShadeSpecularTrans(iter, num_paths, shadeableIntersections, pathSegments, materials);
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (idx > num_paths - 1) return;
+        inlineShadeSpecularTrans(&shadeableIntersections[idx], &pathSegments[idx], materials);
     }
 
     __global__ void kernShadeDielectric(int iter,
@@ -214,13 +221,13 @@ namespace PBR
             // otherwise we will transmissive
             if (u01(rng) < material.probReflVTrans)
             {
-                inlineShadeSpecularRefl(iter, num_paths, shadeableIntersections, pathSegments, materials);
+                inlineShadeSpecularRefl(& shadeableIntersections[idx], & pathSegments[idx], materials);
                 float cosThetaI = glm::dot(intersection.surfaceNormal, glm::normalize(seg->ray.direction));
                 seg->color *= 2.f * FresnelDielectricEval(cosThetaI, ior);
             }
             else
             {
-                inlineShadeSpecularTrans(iter, num_paths, shadeableIntersections, pathSegments, materials);
+                inlineShadeSpecularTrans(&shadeableIntersections[idx], &pathSegments[idx], materials);
                 float cosThetaI = glm::dot(intersection.surfaceNormal, glm::normalize(seg->ray.direction));
                 seg->color *= 2.f * (glm::vec3(1.f) - FresnelDielectricEval(cosThetaI, ior));
             }
@@ -233,7 +240,9 @@ namespace PBR
         PathSegment* pathSegments,
         Material* materials)
     {
-        inlineShadePBR(iter, num_paths, shadeableIntersections, pathSegments, materials);
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (idx > num_paths - 1) return;
+        inlineShadePBR(iter, idx, &shadeableIntersections[idx], &pathSegments[idx], materials);
     }
 
     __device__ glm::vec3 FresnelDielectricEval(float cosThetaI, float ior)

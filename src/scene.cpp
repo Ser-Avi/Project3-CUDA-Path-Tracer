@@ -170,8 +170,8 @@ void Scene::loadFromGLTF()
     }
 
     // after we loaded in all the triangles we can construct the BVH
-    int numTri = gltfManager.getTrianglesHost()->size();
-    gltfManager.getBVHHost()->resize(numTri * 2);
+    numTriangles = gltfManager.getTrianglesHost()->size();
+    gltfManager.getBVHHost()->resize(numTriangles * 2);
     // initializing just to be extra safe
     for (auto& node : *gltfManager.getBVHHost())
     {
@@ -179,20 +179,20 @@ void Scene::loadFromGLTF()
         node.triCount = 0;
     }
     gltfManager.nodes_used = 1;
-    int numbvh = gltfManager.getBVHHost()->size();
-    gltfManager.getTriIntHost()->resize(numTri);
-    BVH::BuildBVH(numTri, *gltfManager.getTriIntHost(), *gltfManager.getTrianglesHost(), *gltfManager.getBVHHost(), gltfManager.nodes_used);
+    int nimBVHinit = gltfManager.getBVHHost()->size();
+    gltfManager.getTriIntHost()->resize(numTriangles);
+    BVH::BuildBVH(numTriangles, *gltfManager.getTriIntHost(), *gltfManager.getTrianglesHost(), *gltfManager.getBVHHost(), gltfManager.nodes_used);
 
-    int nodesU = gltfManager.nodes_used;
+    numBVHnodes = gltfManager.nodes_used;
 
     gltfManager.finishSequentialUpload();
 
     std::cout << "All scenes loaded successfully!" << std::endl;
     std::cout << "Total triangles: " << gltfManager.getNumTriangles() << std::endl;
     std::cout << "Total materials: " << gltfManager.getNumMaterials() << std::endl;
-    std::cout << "BVH Triangles: " << numTri << std::endl;
-    std::cout << "BVH Nodes inittialized: " << numbvh << std::endl;
-    std::cout << "Nodes used: " << nodesU << std::endl;
+    std::cout << "BVH Triangles: " << numTriangles << std::endl;
+    std::cout << "BVH Nodes inittialized: " << nimBVHinit << std::endl;
+    std::cout << "Nodes used: " << numBVHnodes << std::endl;
 }
 
 bool Scene::loadEnvironmentMap(const std::string& hdr_filename) {

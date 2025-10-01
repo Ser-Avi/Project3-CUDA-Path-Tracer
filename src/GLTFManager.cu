@@ -257,11 +257,6 @@ namespace BVH
     {
         // populate triangle index array
         for (int i = 0; i < N; i++) triIdx[i] = i;
-        // calculate triangle centroids for partitioning
-        //for (int i = 0; i < N; i++)
-        //{
-        //    tri[i].centroid = glm::vec3(tri[i].v0 + tri[i].v1 + tri[i].v2) * 0.3333f;
-        //}
         // assign all triangles to root node
         BVHNode& root = bvhNode[0];
         root.leftFirst = 0, root.triCount = N;

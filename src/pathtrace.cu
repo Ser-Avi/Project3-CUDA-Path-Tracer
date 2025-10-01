@@ -20,6 +20,8 @@
 
 #define ERRORCHECK 1
 #define MATERIAL_NUM 7
+#define isBVH true
+#define visBVH true
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 void checkCUDAErrorFn(const char* msg, const char* file, int line)
@@ -44,13 +46,6 @@ void checkCUDAErrorFn(const char* msg, const char* file, int line)
     exit(EXIT_FAILURE);
 #endif // ERRORCHECK
 }
-
-//__host__ __device__
-//thrust::default_random_engine makeSeededRandomEngine(int iter, int index, int depth)
-//{
-//    int h = utilhash((1 << 31) | (depth << 22) | iter) ^ utilhash(index);
-//    return thrust::default_random_engine(h);
-//}
 
 //Kernel that writes the image to the OpenGL PBO directly.
 __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution, int iter, glm::vec3* image)
@@ -148,10 +143,6 @@ void pathtraceInit(Scene* scene, const std::string& envMapPath)
         printf("Trynna load envMap from pathtrace.cu\n");
         scene->loadEnvironmentMap(envMapPath);
     }
-    else
-    {
-        printf("envmap loading skipped. Path: %s, Width: %d\n", envMapPath.c_str(), scene->curr_env_map.width);
-    }
     checkCUDAError("pathtraceInit");
 }
 
@@ -220,6 +211,43 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
     }
 }
 
+__global__ void kernDrawBVH(
+    int depth,
+    int num_paths,
+    PathSegment* pathSegments,
+    ShadeableIntersection* intersections, BVHNode* BVHs)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx > num_paths - 1) { return; }
+    PathSegment* pathSegment = &pathSegments[idx];
+    float t;
+    BVHNode nodeStack[64]; // max recursion depth is 64 for now, should be enough for most
+    int stackIdx = 0;
+    nodeStack[stackIdx++] = BVHs[0];
+    pathSegment->color = glm::vec3(0.f);        // set base color to black
+
+    while (stackIdx > 0)
+    {
+        BVHNode node = nodeStack[--stackIdx];
+        float t = IntersectAABB_Dist(pathSegment->ray, node.aabbMin, node.aabbMax, -1.f);
+        if (t < 1e29f) // intersected a bounding box
+        {
+            // we will simply add some white and continue for each bvh intersection
+            pathSegment->color += glm::vec3(0.01f);
+            // If this is an internal node, push children
+            if (node.triCount < 1)
+            {
+                // if stack has space, push children
+                if (stackIdx + 2 < 64)
+                {
+                    nodeStack[stackIdx++] = BVHs[node.leftFirst];
+                    nodeStack[stackIdx++] = BVHs[node.leftFirst + 1];
+                }
+            }
+        }
+    }
+}
+
 // TODO:
 // computeIntersections handles generating ray intersections ONLY.
 // Generating new rays is handled in your shader(s).
@@ -266,7 +294,6 @@ __global__ void computeIntersections(
             {
                 t = sphereIntersectionTest(geom, pathSegment->ray, tmp_intersect, tmp_normal, outside);
             }
-            // TODO: add more intersection tests here... triangle? metaball? CSG?
 
             // Compute the minimum t from the intersection tests to determine what
             // scene geometry object was hit first.
@@ -285,7 +312,7 @@ __global__ void computeIntersections(
         int idx;
 
         t = FLT_MAX;
-
+#if isBVH
         t = IntersectBVH_Naive(pathSegment->ray, 0, BVHs, triIndices, triangles, t, tmp_intersect, tmp_normal, tmp_uv, outside, idx);
 
         if (t > 0.0f && t_min > t)
@@ -297,8 +324,8 @@ __global__ void computeIntersections(
             uv = tmp_uv;
             triangle = true;
         }
-
-       /* for (int i = 0; i < num_triangles; ++i)
+#else
+       for (int i = 0; i < num_triangles; ++i)
         {
             t = triangleIntersectionTest(triangles[i], pathSegment->ray, tmp_intersect, tmp_normal, tmp_uv, outside);
             if (t > 0.0f && t_min > t)
@@ -310,8 +337,8 @@ __global__ void computeIntersections(
                 uv = tmp_uv;
                 triangle = true;
             }
-        }*/
-
+        }
+#endif
         if (hit_geom_index == -1)
         {
             intersections[path_index].t = -1.0f;
@@ -340,71 +367,6 @@ __global__ void computeIntersections(
     }
 }
 
-// LOOK: "fake" shader demonstrating what you might do with the info in
-// a ShadeableIntersection, as well as how to use thrust's random number
-// generator. Observe that since the thrust random number generator basically
-// adds "noise" to the iteration, the image should start off noisy and get
-// cleaner as more iterations are computed.
-//
-// Note that this shader does NOT do a BSDF evaluation!
-// Your shaders should handle that - this can allow techniques such as
-// bump mapping.
-__global__ void shadeMaterial(
-    int iter,
-    int num_paths,
-    ShadeableIntersection* shadeableIntersections,
-    PathSegment* pathSegments,
-    Material* materials)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < num_paths)
-    {
-        ShadeableIntersection intersection = shadeableIntersections[idx];
-        PathSegment* seg = &pathSegments[idx];
-
-        if (intersection.t > 0.0f && seg->remainingBounces > 0) // if the intersection exists...
-        {
-          // Set up the RNG
-          // LOOK: this is how you use thrust's RNG! Please look at
-          // makeSeededRandomEngine as well.
-            thrust::default_random_engine rng = PBR::makeSeededRandomEngine(iter, idx, seg->remainingBounces);
-            thrust::uniform_real_distribution<float> u01(0, 1);
-
-            Material material = materials[intersection.materialId];
-            glm::vec3 materialColor = material.color;
-
-            // If the material indicates that the object was a light, "light" the ray
-            if (material.emittance > 0.0f) {
-                seg->color *= (materialColor * material.emittance);
-                seg->remainingBounces = 0;
-            }
-            // Otherwise, do some pseudo-lighting computation. This is actually more
-            // like what you would expect from shading in a rasterizer like OpenGL.
-            else {
-                glm::vec3 wi = calculateRandomDirectionInHemisphere(intersection.surfaceNormal, rng);
-                //float cosIn = glm::max(0.0f, dot(intersection.surfaceNormal, wi));
-                //float pdf = cosIn * INV_PI;
-                seg->color *= materialColor * abs(dot(-wi, intersection.surfaceNormal));
-
-                // then we bounce a new ray
-                seg->remainingBounces--;
-                glm::vec3 p = seg->ray.origin + seg->ray.direction * intersection.t;
-                seg->ray.origin = p + intersection.surfaceNormal * EPSILON;
-                seg->ray.direction = wi;
-            }
-            // If there was no intersection, color the ray black.
-            // Lots of renderers use 4 channel color, RGBA, where A = alpha, often
-            // used for opacity, in which case they can indicate "no opacity".
-            // This can be useful for post-processing and image compositing.
-
-        }
-        else {
-            intersection.materialType = NONE;
-            seg->remainingBounces = 0;
-        }
-    }
-}
-
 // Add the current iteration's output to the overall image
 __global__ void finalGather(int nPaths, glm::vec3* image, PathSegment* iterationPaths)
 {
@@ -421,7 +383,7 @@ __global__ void finalGather(int nPaths, glm::vec3* image, PathSegment* iteration
  * Wrapper for the __global__ call that sets up the kernel calls and does a ton
  * of memory management
  */
-void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort, bool isStochastic)
+void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort, bool isStochastic, bool isBVHvis)
 {
     //std::cout << "PT start" << std::endl;
     const int traceDepth = hst_scene->state.traceDepth;
@@ -520,132 +482,129 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
             exit(1);
         }
 
-        computeIntersections<<<numblocksPathSegmentTracing, blockSize1d>>> (
-            depth,
-            num_paths,
-            dev_paths,
-            dev_geoms,
-            hst_scene->geoms.size(),
-            dev_intersections,
-            dev_triangles,
-            triangle_num,
-            dev_triIndices,
-            dev_bvh
-        );
-        checkCUDAError("trace one bounce");
-        err = cudaDeviceSynchronize();
-        if (err != cudaSuccess) {
-            std::cerr << "CUDA Kernel Error: " << cudaGetErrorString(err) << std::endl;
-        }
-
-        if (isMatSort)
+        if (!isBVHvis)
         {
-            //std::cout << "Depth: " << depth << std::endl;
-            thrust::sort_by_key(thrust::device, dev_intersections, dev_intersections + num_paths, dev_paths, CompareByKey());
-            Utils::kernResetIntBuffer << <numblocksPathSegmentTracing, blockSize1d >> > (MATERIAL_NUM, dev_materialStartIndices, -1);
-            Utils::kernResetIntBuffer << <numblocksPathSegmentTracing, blockSize1d >> > (MATERIAL_NUM, dev_materialEndIndices, -1);
-            Utils::kernIdentifyStartEnd << <numblocksPathSegmentTracing, blockSize1d >> > (num_paths, dev_intersections, dev_materialStartIndices, dev_materialEndIndices);
-            cudaMemcpy(hst_materialStartIndices, dev_materialStartIndices, sizeof(int) * MATERIAL_NUM, cudaMemcpyDeviceToHost);
-            cudaMemcpy(hst_materialEndIndices, dev_materialEndIndices, sizeof(int) * MATERIAL_NUM, cudaMemcpyDeviceToHost);
-            
-            // we can cull NONE materials here by simply setting num_paths to their start index (since they come last)
-            // however this trick only works if there are NONE materials, hence the conditional
-            //num_paths = hst_materialStartIndices[0] > 0 ? hst_materialStartIndices[0] : num_paths;
+            computeIntersections << <numblocksPathSegmentTracing, blockSize1d >> > (
+                depth,
+                num_paths,
+                dev_paths,
+                dev_geoms,
+                hst_scene->geoms.size(),
+                dev_intersections,
+                dev_triangles,
+                triangle_num,
+                dev_triIndices,
+                dev_bvh
+                );
+            checkCUDAError("trace one bounce");
+            err = cudaDeviceSynchronize();
+            if (err != cudaSuccess) {
+                std::cerr << "CUDA Kernel Error: " << cudaGetErrorString(err) << std::endl;
+            }
 
-            for (int mat = 0; mat < MATERIAL_NUM; ++mat)
+            if (isMatSort)
             {
-                int start = hst_materialStartIndices[mat];
-                int end = hst_materialEndIndices[mat];
+                //std::cout << "Depth: " << depth << std::endl;
+                thrust::sort_by_key(thrust::device, dev_intersections, dev_intersections + num_paths, dev_paths, CompareByKey());
+                Utils::kernResetIntBuffer << <numblocksPathSegmentTracing, blockSize1d >> > (MATERIAL_NUM, dev_materialStartIndices, -1);
+                Utils::kernResetIntBuffer << <numblocksPathSegmentTracing, blockSize1d >> > (MATERIAL_NUM, dev_materialEndIndices, -1);
+                Utils::kernIdentifyStartEnd << <numblocksPathSegmentTracing, blockSize1d >> > (num_paths, dev_intersections, dev_materialStartIndices, dev_materialEndIndices);
+                cudaMemcpy(hst_materialStartIndices, dev_materialStartIndices, sizeof(int) * MATERIAL_NUM, cudaMemcpyDeviceToHost);
+                cudaMemcpy(hst_materialEndIndices, dev_materialEndIndices, sizeof(int) * MATERIAL_NUM, cudaMemcpyDeviceToHost);
 
-                //printf("Mat: %d, Start: %d, End: %d\n", mat, start, end);
+                // we can cull NONE materials here by simply setting num_paths to their start index (since they come last)
+                // however this trick only works if there are NONE materials, hence the conditional
+                num_paths = hst_materialStartIndices[0] > 0 ? hst_materialStartIndices[0] : num_paths;
 
-                if (start < 0 || end < start)
+                for (int mat = 0; mat < MATERIAL_NUM; ++mat)
                 {
-                    continue;
-                }
-                const int count = end - start + 1;
+                    int start = hst_materialStartIndices[mat];
+                    int end = hst_materialEndIndices[mat];
 
-                const dim3 numblocks = (count + blockSize1d - 1) / blockSize1d;
+                    //printf("Mat: %d, Start: %d, End: %d\n", mat, start, end);
 
-                switch (static_cast<MaterialType>(mat))
-                {
-                case NONE:
-                    PBR::kernShadeNosect << <numblocks, blockSize1d >> > (iter, count, dev_intersections + start, dev_paths + start, dev_materials, envMap);
-                    checkCUDAError("none");
-                    break;
-                case EMISSIVE:
-                    PBR::kernShadeEmissive << <numblocks, blockSize1d >> > (iter, count, dev_intersections + start, dev_paths + start, dev_materials);
-                    checkCUDAError("emissive");
-                    break;
-                case DIFFUSE:
-                    PBR::kernShadeDiffuse << <numblocks, blockSize1d >> > (iter, count, dev_intersections + start, dev_paths + start, dev_materials);
-                    checkCUDAError("diffuse");
-                    break;
-                case SPECULAR_REFL:
-                    PBR::kernShadeSpecularRefl<<<numblocks, blockSize1d >> > (iter, count, dev_intersections + start, dev_paths + start, dev_materials);
-                    checkCUDAError("specular");
-                    break;
-                case SPECULAR_TRANS:
-                    PBR::kernShadeSpecularTrans << <numblocks, blockSize1d >> > (iter, count, dev_intersections + start, dev_paths + start, dev_materials);
-                    checkCUDAError("transmissive");
-                    break;
-                case DIELECTRIC:
-                    PBR::kernShadeDielectric<<<numblocks, blockSize1d >> > (iter, count, dev_intersections + start, dev_paths + start, dev_materials);
-                    checkCUDAError("dielectric");
-                    break;
-                case PBR_MAT:
-                    //PBR::kernShadeDiffuse << <numblocks, blockSize1d >> > (iter, count, dev_intersections + start, dev_paths + start, dev_materials);
-                    PBR::kernShadePBR << <numblocks, blockSize1d >> > (iter, num_paths, dev_intersections + start, dev_paths + start, dev_PBRmaterials);
-                    checkCUDAError("PBR");
-                    break;
-                default:
-                    std::cout << "ERROR: no material found at loop kern launch" << std::endl;
-                    PBR::kernShadeAll << <numblocks, blockSize1d >> > (
-                        iter,
-                        count,
-                        dev_intersections + count,
-                        dev_paths + count,
-                        dev_materials, envMap
-                        );
-                    break;
+                    if (start < 0 || end < start)
+                    {
+                        continue;
+                    }
+                    const int count = end - start + 1;
+
+                    const dim3 numblocks = (count + blockSize1d - 1) / blockSize1d;
+
+                    switch (static_cast<MaterialType>(mat))
+                    {
+                    case NONE:
+                        PBR::kernShadeNosect << <numblocks, blockSize1d >> > (count, dev_paths + start, envMap);
+                        checkCUDAError("none");
+                        break;
+                    case EMISSIVE:
+                        PBR::kernShadeEmissive << <numblocks, blockSize1d >> > (count, dev_intersections + start, dev_paths + start, dev_materials);
+                        checkCUDAError("emissive");
+                        break;
+                    case DIFFUSE:
+                        PBR::kernShadeDiffuse << <numblocks, blockSize1d >> > (iter, count, dev_intersections + start, dev_paths + start, dev_materials);
+                        checkCUDAError("diffuse");
+                        break;
+                    case SPECULAR_REFL:
+                        PBR::kernShadeSpecularRefl << <numblocks, blockSize1d >> > (count, dev_intersections + start, dev_paths + start, dev_materials);
+                        checkCUDAError("specular");
+                        break;
+                    case SPECULAR_TRANS:
+                        PBR::kernShadeSpecularTrans << <numblocks, blockSize1d >> > (count, dev_intersections + start, dev_paths + start, dev_materials);
+                        checkCUDAError("transmissive");
+                        break;
+                    case DIELECTRIC:
+                        PBR::kernShadeDielectric << <numblocks, blockSize1d >> > (iter, count, dev_intersections + start, dev_paths + start, dev_materials);
+                        checkCUDAError("dielectric");
+                        break;
+                    case PBR_MAT:
+                        PBR::kernShadePBR << <numblocks, blockSize1d >> > (iter, count, dev_intersections + start, dev_paths + start, dev_PBRmaterials);
+                        checkCUDAError("PBR");
+                        break;
+                    default:
+                        std::cout << "ERROR: no material found at loop kern launch" << std::endl;
+                        PBR::kernShadeAll << <numblocks, blockSize1d >> > (
+                            iter,
+                            count,
+                            dev_intersections + count,
+                            dev_paths + count,
+                            dev_materials, dev_PBRmaterials, envMap
+                            );
+                        break;
+                    }
                 }
             }
+            else
+            {
+                PBR::kernShadeAll << <numblocksPathSegmentTracing, blockSize1d >> > (
+                    iter,
+                    num_paths,
+                    dev_intersections,
+                    dev_paths,
+                    dev_materials, dev_PBRmaterials, envMap
+                    );
+            }
+
+            if (isCompact)
+            {
+                PathSegment* mid = thrust::partition(thrust::device, dev_paths, dev_paths + num_paths, is_continue());
+                num_paths = static_cast<int>(mid - dev_paths);
+            }
+
+            if (++depth > traceDepth - 1 || num_paths < 1) iterationComplete = true;
         }
         else
         {
-            PBR::kernShadeAll << <numblocksPathSegmentTracing, blockSize1d >> > (
-                iter,
+            kernDrawBVH << <numblocksPathSegmentTracing, blockSize1d >> > (
+                depth,
                 num_paths,
-                dev_intersections,
                 dev_paths,
-                dev_materials, envMap
+                dev_intersections,
+                dev_bvh
                 );
+            iterationComplete = true;
         }
 
-        //if (isCompact)
-        //{
-        //    PathSegment* mid = thrust::partition(thrust::device, dev_paths, dev_paths + num_paths, is_continue());
-        //    num_paths = static_cast<int>(mid - dev_paths);
-        //}
-
-        // TODO:
-        // --- Shading Stage ---
-        // Shade path segments based on intersections and generate new rays by
-        // evaluating the BSDF.
-        // Start off with just a big kernel that handles all the different
-        // materials you have in the scenefile.
-        // TODO: compare between directly shading the path segments and shading
-        // path segments that have been reshuffled to be contiguous in memory.
-
-        if (isCompact)
-        {
-            PathSegment* mid = thrust::partition(thrust::device, dev_paths, dev_paths + num_paths, is_continue());
-            num_paths = static_cast<int>(mid - dev_paths);
-        }
-
-        //std::cout << num_paths << std::endl;
-
-        if (++depth > traceDepth - 1 || num_paths < 1) iterationComplete = true; // TODO: should be based off stream compaction results.
 
         if (guiData != NULL)
         {

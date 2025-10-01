@@ -69,6 +69,7 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
 bool isCompact = false;
 bool isMatSort = true;
 bool isStochastic = true;
+bool isBVHvis = false;
 std::string envmapPath = "";
 std::string selectedPath = "";
 const char* mapNames[] = { "None", "Bridge", "Bonifacio Street", "Fireplace" };
@@ -291,6 +292,7 @@ void RenderImGui()
     ImGui::Checkbox("Toggle Stream Compaction", &isCompact);
     ImGui::Checkbox("Toggle Material Sorting", &isMatSort);
     ImGui::Checkbox("Toggle Stochastic Sampling", &isStochastic);
+    ImGui::Checkbox("Toggle BVH Visualizing", &isBVHvis);
 
     // Environment Map selection
     ImGui::Text("Environment Maps");
@@ -339,7 +341,10 @@ void RenderImGui()
     //    counter++;
     //ImGui::SameLine();
     //ImGui::Text("counter = %d", counter);
+    ImGui::Text("STATS");
     ImGui::Text("Traced Depth %d", imguiData->TracedDepth);
+    ImGui::Text("Number of triangles from GLTFS: %d", scene->numTriangles);
+    ImGui::Text("Number of BVH Nodes: %d", scene->numBVHnodes);
     ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
     ImGui::End();
 
@@ -513,7 +518,7 @@ void runCuda()
 
         // execute the kernel
         int frame = 0;
-        pathtrace(pbo_dptr, frame, iteration, isCompact, isMatSort, isStochastic);
+        pathtrace(pbo_dptr, frame, iteration, isCompact, isMatSort, isStochastic, isBVHvis);
 
         // unmap buffer object
         cudaGLUnmapBufferObject(pbo);

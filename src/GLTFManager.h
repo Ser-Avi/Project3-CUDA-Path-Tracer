@@ -74,7 +74,7 @@ public:
         float base_color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
         float metallic = 0.0f;
         float roughness = 1.0f;
-        float ao;
+        float ao = 1.0f;
         // Paths to external textures
         std::string base_color_texture_path;
         std::string metallic_roughness_texture_path;
