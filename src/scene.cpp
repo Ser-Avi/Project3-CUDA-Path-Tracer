@@ -222,7 +222,10 @@ bool Scene::loadEnvironmentMap(const std::string& hdr_filename) {
     if (curr_env_map.name != "")
     {
         // if we have one already loaded -> clear it
-        clearEnvironmentMap();
+        //clearEnvironmentMap();
+        textLoader.cleanupEnvMap();
+        curr_env_map = EnvMap{ 0, "", 0, 0, nullptr };
+        std::cout << "Prev env map cleared" << std::endl;
     }
 
     curr_env_map = textLoader.loadEnvMap(hdr_filename);
