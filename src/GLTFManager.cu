@@ -713,7 +713,7 @@ void GLTFManager::beginSequentialUpload() {
     std::cout << "Beginning sequential upload..." << std::endl;
 }
 
-bool GLTFManager::addScene(const GLTFLoader& loader, TextureLoader& texture_loader) {
+bool GLTFManager::addScene(const GLTFLoader& loader, TextureLoader& texture_loader, std::vector<glm::mat4>& transMats) {
     // Get meshes and materials from the loader
     const auto& meshes = loader.getMeshes();
     const auto& materials = loader.getMaterials();
@@ -722,7 +722,8 @@ bool GLTFManager::addScene(const GLTFLoader& loader, TextureLoader& texture_load
         << materials.size() << " materials" << std::endl;
 
     // Process meshes into triangles
-    for (const auto& mesh : meshes) {
+    for (int j = 0; j < meshes.size(); ++j) {
+        const auto& mesh = meshes[j];
         if (mesh.indices.size() % 3 != 0) continue;
 
         for (size_t i = 0; i < mesh.indices.size(); i += 3) {
@@ -733,17 +734,25 @@ bool GLTFManager::addScene(const GLTFLoader& loader, TextureLoader& texture_load
 
             // vertex processing
             tri.v0 = glm::vec3(mesh.vertices[idx0 * 3], mesh.vertices[idx0 * 3 + 1], mesh.vertices[idx0 * 3 + 2]);
+            tri.v0 = glm::vec3(transMats[j] * glm::vec4(tri.v0.x, tri.v0.y, tri.v0.z, 1.));
             tri.v1 = glm::vec3(mesh.vertices[idx1 * 3], mesh.vertices[idx1 * 3 + 1], mesh.vertices[idx1 * 3 + 2]);
+            tri.v1 = glm::vec3(transMats[j] * glm::vec4(tri.v1.x, tri.v1.y, tri.v1.z, 1.));
             tri.v2 = glm::vec3(mesh.vertices[idx2 * 3], mesh.vertices[idx2 * 3 + 1], mesh.vertices[idx2 * 3 + 2]);
+            tri.v2 = glm::vec3(transMats[j] * glm::vec4(tri.v2.x, tri.v2.y, tri.v2.z, 1.));
 
             // Normals
             if (!mesh.normals.empty()) {
+                glm::mat4 transInv = glm::transpose(transMats[j]);
+                transInv = glm::inverse(transInv);
                 tri.n0 = glm::vec3(mesh.normals[idx0 * 3], mesh.normals[idx0 * 3 + 1], mesh.normals[idx0 * 3 + 2]);
+                tri.n0 = glm::vec3(transInv * glm::vec4(tri.n0.x, tri.n0.y, tri.n0.z, 0.));
                 tri.n1 = glm::vec3(mesh.normals[idx1 * 3], mesh.normals[idx1 * 3 + 1], mesh.normals[idx1 * 3 + 2]);
+                tri.n1 = glm::vec3(transInv * glm::vec4(tri.n1.x, tri.n1.y, tri.n1.z, 0.));
                 tri.n2 = glm::vec3(mesh.normals[idx2 * 3], mesh.normals[idx2 * 3 + 1], mesh.normals[idx2 * 3 + 2]);
+                tri.n2 = glm::vec3(transInv * glm::vec4(tri.n2.x, tri.n2.y, tri.n2.z, 0.));
             }
             else {
-                // Compute face normal
+                // if no given normal, it'll just be flat
                 glm::vec3 edge1 = glm::vec3(tri.v1.x - tri.v0.x, tri.v1.y - tri.v0.y, tri.v1.z - tri.v0.z);
                 glm::vec3 edge2 = glm::vec3(tri.v2.x - tri.v0.x, tri.v2.y - tri.v0.y, tri.v2.z - tri.v0.z);
                 glm::vec3 normal = glm::normalize(glm::cross(edge1, edge2));

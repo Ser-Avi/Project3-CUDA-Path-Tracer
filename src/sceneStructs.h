@@ -45,7 +45,8 @@ enum MaterialType
     SPECULAR_REFL,
     SPECULAR_TRANS,
     DIELECTRIC,
-    PBR_MAT
+    PBR_MAT,
+    PBR_GLTF
 };
 
 struct Geom
@@ -70,7 +71,7 @@ struct Material
         float exponent;
         glm::vec3 color;
     } specular;
-    float probReflVTrans; // the probability of it reflecting vs transmitting
+    float probReflVTrans = 0.5; // the probability of it reflecting vs transmitting
     float indexOfRefraction;
     float emittance = 0.;   // default to non-emissive
     float roughness = 1.;   // default to rough plastic for pbr

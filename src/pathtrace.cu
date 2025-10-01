@@ -19,7 +19,7 @@
 #include "interactions.h"
 
 #define ERRORCHECK 1
-#define MATERIAL_NUM 7
+#define MATERIAL_NUM 8
 #define isBVH true
 #define visBVH true
 
@@ -134,7 +134,7 @@ void pathtraceInit(Scene* scene, const std::string& envMapPath)
     cudaMalloc(&dev_materialEndIndices, sizeof(int) * MATERIAL_NUM);
     cudaMemset(dev_materialEndIndices, 0, sizeof(int) * MATERIAL_NUM);
 
-    if (scene->gltfManager.getNumTriangles() < 1)
+    if (scene->gltfs.size() > 0 && scene->gltfManager.getNumTriangles() < 1)
     {
         scene->loadFromGLTF();
     }
@@ -229,7 +229,7 @@ __global__ void kernDrawBVH(
     while (stackIdx > 0)
     {
         BVHNode node = nodeStack[--stackIdx];
-        float t = IntersectAABB_Dist(pathSegment->ray, node.aabbMin, node.aabbMax, -1.f);
+        t = IntersectAABB_Dist(pathSegment->ray, node.aabbMin, node.aabbMax, -1.f);
         if (t < 1e29f) // intersected a bounding box
         {
             // we will simply add some white and continue for each bvh intersection
@@ -313,16 +313,19 @@ __global__ void computeIntersections(
 
         t = FLT_MAX;
 #if isBVH
-        t = IntersectBVH_Naive(pathSegment->ray, 0, BVHs, triIndices, triangles, t, tmp_intersect, tmp_normal, tmp_uv, outside, idx);
-
-        if (t > 0.0f && t_min > t)
+        if (num_triangles > 0)
         {
-            t_min = t;
-            hit_geom_index = idx;
-            intersect_point = tmp_intersect;
-            normal = tmp_normal;
-            uv = tmp_uv;
-            triangle = true;
+            t = IntersectBVH_Naive(pathSegment->ray, 0, BVHs, triIndices, triangles, t, tmp_intersect, tmp_normal, tmp_uv, outside, idx);
+
+            if (t > 0.0f && t_min > t)
+            {
+                t_min = t;
+                hit_geom_index = idx;
+                intersect_point = tmp_intersect;
+                normal = tmp_normal;
+                uv = tmp_uv;
+                triangle = true;
+            }
         }
 #else
        for (int i = 0; i < num_triangles; ++i)
@@ -359,7 +362,7 @@ __global__ void computeIntersections(
             }
             else
             {
-                intersections[path_index].materialType = PBR_MAT;
+                intersections[path_index].materialType = PBR_GLTF;
                 intersections[path_index].materialId = triangles[hit_geom_index].material_id;
                 intersections[path_index].uv = uv;
             }
@@ -558,8 +561,12 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
                         checkCUDAError("dielectric");
                         break;
                     case PBR_MAT:
-                        PBR::kernShadePBR << <numblocks, blockSize1d >> > (iter, count, dev_intersections + start, dev_paths + start, dev_PBRmaterials);
+                        PBR::kernShadePBR << <numblocks, blockSize1d >> > (iter, count, dev_intersections + start, dev_paths + start, dev_materials);
                         checkCUDAError("PBR");
+                        break;
+                    case PBR_GLTF:
+                        PBR::kernShadePBR << <numblocks, blockSize1d >> > (iter, count, dev_intersections + start, dev_paths + start, dev_PBRmaterials);
+                        checkCUDAError("PBR gltf");
                         break;
                     default:
                         std::cout << "ERROR: no material found at loop kern launch" << std::endl;

@@ -296,7 +296,7 @@ void RenderImGui()
 
     // Environment Map selection
     ImGui::Text("Environment Maps");
-    ImGui::Combo("", &mapIdx, mapNames, IM_ARRAYSIZE(mapNames));
+    ImGui::Combo(" ", &mapIdx, mapNames, IM_ARRAYSIZE(mapNames));
     switch (mapIdx)
     {
     case 0:

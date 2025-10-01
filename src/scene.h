@@ -13,6 +13,7 @@ public:
     Scene(std::string filename);
     void loadFromGLTF();
     std::vector<std::string> gltfs;
+    std::vector<glm::mat4> gltfMatrices;
     GLTFManager gltfManager;
     TextureLoader textLoader;
     std::vector<Geom> geoms;
@@ -23,6 +24,6 @@ public:
     EnvMap curr_env_map;
     bool loadEnvironmentMap(const std::string& hdr_filename);
     void clearEnvironmentMap();
-    int numTriangles;
-    int numBVHnodes;
+    uint32_t numTriangles;
+    uint32_t numBVHnodes;
 };

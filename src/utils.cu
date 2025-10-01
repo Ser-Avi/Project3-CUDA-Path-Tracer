@@ -141,7 +141,10 @@ namespace PBR
             }
             break;
         case PBR_MAT:
-            inlineShadePBR(iter, idx, &shadeableIntersections[idx], &pathSegments[idx], pbr_materials);   // I think this should have pbr mats
+            inlineShadePBR(iter, idx, &shadeableIntersections[idx], &pathSegments[idx], materials);
+            break;
+        case PBR_GLTF:
+            inlineShadePBR(iter, idx, &shadeableIntersections[idx], &pathSegments[idx], pbr_materials);
             break;
         default:
             // No material tag-> how did we even get here?

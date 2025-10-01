@@ -116,7 +116,7 @@ public:
     ~GLTFManager();
 
     void beginSequentialUpload();       // for multiple gltfs
-    bool addScene(const GLTFLoader& loader, TextureLoader& texture_loader);
+    bool addScene(const GLTFLoader& loader, TextureLoader& texture_loader, std::vector<glm::mat4>& transMats);
     void finishSequentialUpload();
 
     void clearCurrData();

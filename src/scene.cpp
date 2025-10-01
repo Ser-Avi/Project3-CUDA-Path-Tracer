@@ -57,7 +57,7 @@ void Scene::loadFromJSON(const std::string& jsonName)
         {
             const auto& col = p["RGB"];
             newMaterial.color = glm::vec3(col[0], col[1], col[2]);
-            newMaterial.emittance = p["EMITTANCE"];
+            newMaterial.emittance = p["EMITTANCE"].get<float>();
             newMaterial.type = EMISSIVE;
         }
         else if (p["TYPE"] == "Specular")
@@ -71,15 +71,23 @@ void Scene::loadFromJSON(const std::string& jsonName)
             const auto& col = p["RGB"];
             newMaterial.color = glm::vec3(col[0], col[1], col[2]);
             newMaterial.type = SPECULAR_TRANS;
-            newMaterial.indexOfRefraction = p["INDEX OF REFLECTION"];
+            newMaterial.indexOfRefraction = p["IOR"].get<float>();
         }
         else if (p["TYPE"] == "Dielectric")
         {
             const auto& col = p["RGB"];
             newMaterial.color = glm::vec3(col[0], col[1], col[2]);
             newMaterial.type = DIELECTRIC;
-            newMaterial.probReflVTrans = p["REFLECTIONODDS"];
-            newMaterial.indexOfRefraction = p["INDEX OF REFLECTION"];
+            newMaterial.probReflVTrans = p["REFLECTIONODDS"].get<float>();
+            newMaterial.indexOfRefraction = p["IOR"].get<float>();
+        }
+        else if (p["TYPE"] == "Pbr")
+        {
+            const auto& col = p["RGB"];
+            newMaterial.color = glm::vec3(col[0], col[1], col[2]);
+            newMaterial.type = PBR_MAT;
+            newMaterial.metallic = p["METALLIC"].get<float>();
+            newMaterial.roughness = p["ROUGHNESS"].get<float>();
         }
         MatNameToID[name] = materials.size();
         materials.emplace_back(newMaterial);
@@ -145,10 +153,25 @@ void Scene::loadFromJSON(const std::string& jsonName)
     state.image.resize(arraylen);
     std::fill(state.image.begin(), state.image.end(), glm::vec3());
 
-    gltfs = data["GLTF"];
-    for (std::string gltfName : gltfs)
-    {
-        std::cout << "GLTF Name: " << gltfName << std::endl;
+    // loading in GLTF paths and constructing their matrices
+    if (data.contains("GLTF")) {
+        const auto& gltfArray = data["GLTF"];
+        for (const auto& gltfData : gltfArray) {
+            // They need to have a path, we skip if they don't
+            if (!gltfData.contains("Path")) continue;
+            gltfs.push_back(gltfData["Path"].get<std::string>());
+
+            // transformations with defaults
+            const auto& rot = gltfData.value("Rot", json::array({ 0.0f, 0.0f, 0.0f }));
+            glm::vec3 rotVec = glm::vec3(rot[0], rot[1], rot[2]);
+            const auto& trans = gltfData.value("Trans", json::array({ 0.0f, 0.0f, 0.0f }));
+            glm::vec3 transVec = glm::vec3(trans[0], trans[1], trans[2]);
+            const auto& scale = gltfData.value("Scale", json::array({ 1.0f, 1.0f, 1.0f }));
+            glm::vec3 scaleVec = glm::vec3(scale[0], scale[1], scale[2]);
+
+            glm::mat4 transMat = utilityCore::buildTransformationMatrix(transVec, rotVec, scaleVec);
+            gltfMatrices.push_back(transMat);
+        }
     }
 }
 
@@ -164,7 +187,7 @@ void Scene::loadFromGLTF()
         }
         else
         {
-            gltfManager.addScene(loader, textLoader);
+            gltfManager.addScene(loader, textLoader, gltfMatrices);
             loader.clear();
         }
     }
