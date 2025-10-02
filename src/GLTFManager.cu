@@ -1,7 +1,7 @@
 #include "GLTFManager.h"
 
-#define BalancedBVH true
-#define BuildFastBVH true
+#define BalancedBVH false
+#define BuildFastBVH false
 
 TextureLoader::TextureLoader() = default;
 
@@ -346,7 +346,7 @@ namespace BVH
         // or stopping later also (?)
         if (node.triCount <= 2)
         {
-            std::cout << "less than 2 at idx: " << nodeIdx << std::endl;
+            //std::cout << "less than 2 at idx: " << nodeIdx << std::endl;
             return;
         }
         // Naive split axis and pos

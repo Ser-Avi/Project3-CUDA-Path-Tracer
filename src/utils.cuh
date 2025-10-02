@@ -362,30 +362,39 @@ namespace PBR
         // hoping it works
 
         // now we do some branching and pray we did it all right
-        if (glm::max(glm::max(kS.x, kS.y), kS.z) > xi)
+        if(glm::max(glm::max(kS.x, kS.y), kS.z) > xi)
         {
+            if (roughness > EPSILON)
+            {
+                // if roughness is less than 1, then we use it, otherwise we just do perfectly specular
+                glm::vec3 wh = glm::normalize(wiSpec + woWorld);
+                float D = Utils::TrowbridgeReitzD(wh, roughness);
+                float G = Utils::TrowbridgeReitzG(woWorld, wiSpec, roughness);
+                albedo = glm::vec3(1.);
+                // albedo is changed with the D and G terms -> incorporates roughness
+                albedo *= kS * D + G;
+            }
+            else
+            {
+                albedo = glm::vec3(1.);   // we don't want to add our color if we're perfectly specular
+            }
 
-            glm::vec3 wh = glm::normalize(wiSpec + woWorld);
-            float D = Utils::TrowbridgeReitzD(wh, roughness);
-            float G = Utils::TrowbridgeReitzG(woWorld, wiSpec, roughness);
             /*wiFin = Utils::LocalToWorld(wiSpec);*/
             wiFin = wiSpec;
-            albedo = glm::vec3(1.);
-            // albedo is changed with the D and G terms -> incorporates roughness
-            albedo *= kS * D + G;
-            albedo /= kS;             // attenuate?
+
+            //albedo /= kS;             // attenuate?
         }
         else
         {
             wiFin = wiDiff;
-            albedo *= glm::max(glm::dot(norW, wiFin), 0.f);
+            //albedo *= glm::max(glm::dot(norW, wiFin), 0.f);
             //wiFin = Utils::LocalToWorld(wiDiff);
             // NOTE: maybe should have irradiance term somehow?
             // also, maybe shouldn't have absdot term
             albedo *= kD;
-            albedo /= glm::vec3(1.f) - kS;    // attenuate?
+            //albedo /= glm::vec3(1.f) - kS;    // attenuate?
         }
-        //albedo *= ao;
+        albedo *= ao;
         // then we bounce a new ray
         //wiFin = Utils::LocalToWorld(wiFin, norW);
         seg->remainingBounces--;
