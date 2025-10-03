@@ -52,6 +52,32 @@ namespace Utils
         return glm::vec3(sample.x, sample.y, sample.z);
     }
 
+    __device__ float Smith_GGX(glm::vec3 wo, glm::vec3 nor, float alpha)
+    {
+        float alphaSq = alpha * alpha;
+        float NdotW = glm::max(glm::dot(nor, wo), 0.f);
+
+        float numer = 2.0f * NdotW;
+
+        float denomSq = alphaSq + (1.0f - alphaSq) * (glm::pow(NdotW, 2.0f));
+        float denom = NdotW + glm::sqrt(denomSq);
+
+        return numer / glm::max(denom, 0.0001f);
+    }
+
+    __device__ float PDF_GGX(glm::vec3 wo, glm::vec3 wi, glm::vec3 nor, float rough)
+    {
+        glm::vec3 wh = glm::normalize(wo + wi);
+
+        rough = glm::clamp(rough, 0.05f, 1.f);
+        float alpha = rough * rough;
+
+        float ph = TrowbridgeReitzD(wh, nor, alpha) * glm::dot(nor, wh);
+        float pwi = ph / glm::max((4 * glm::abs(glm::dot(wo, wh))), EPSILON);
+
+        return pwi;
+    }
+
     __device__ float Lambda(const glm::vec3& w, const float roughness)
     {
         float absTanTheta = abs(TanTheta(w));
@@ -64,30 +90,69 @@ namespace Utils
         return (-1 + sqrt(1.f + alpha2Tan2Theta)) / 2;
     }
 
-    __device__ float TrowbridgeReitzD(const glm::vec3& wh, const float roughness)
+    __device__ float TrowbridgeReitzD(const glm::vec3& wh, const glm::vec3& nor, const float alpha)
     {
-        float tan2Theta = Tan2Theta(wh);
-        if (isinf(tan2Theta)) return 0.f;
+        float alpha_sq = alpha * alpha;
 
-        float cos4Theta = Cos2Theta(wh) * Cos2Theta(wh);
+        float numerator = alpha_sq;
 
-        float e = (Cos2Phi(wh) / (roughness * roughness) + Sin2Phi(wh) / (roughness * roughness)) * tan2Theta;
-        return 1 / (PI * roughness * roughness * cos4Theta * (1 + e) * (1 + e));
+        float n_dot_h_sq = glm::pow(glm::max(0.f, glm::dot(nor, wh)), 2.0f);
+        float denom_component = (n_dot_h_sq * (alpha_sq - 1.0f)) + 1.0f;
+
+        float denominator = denom_component * denom_component * PI;
+
+        return numerator / glm::max(denominator, 0.0001f);
     }
 
     __device__ float TrowbridgeReitzG(const glm::vec3& wo, const glm::vec3& wi, const float roughness)
     {
         return 1 / (1 + Lambda(wo, roughness) + Lambda(wi, roughness));
     }
-
-    __device__ float TrowbridgeReitzPdf(const glm::vec3& wo, const glm::vec3& wh, const float roughness)
-    {
-        return TrowbridgeReitzD(wh, roughness) * glm::abs(wh.z);
-    }
 }
 
 namespace PBR
 {
+    __device__ glm::vec3 BRDF(const glm::vec3& wo, const glm::vec3& normal, glm::vec3& wi,
+        glm::vec3& albedo, float& roughness, const float& metallic)
+    {
+        glm::vec3 wh = glm::normalize(wo + wi);
+        roughness = glm::clamp(roughness, 0.05f, 1.0f);
+        float alpha = roughness * roughness;
+
+        glm::vec3 R = glm::vec3(0.04f);
+        glm::vec3 F0 = glm::mix(R, albedo, metallic);
+
+        float D = Utils::TrowbridgeReitzD(wh, normal, alpha);
+        glm::vec3 F = fresnelSchlickApproximation(glm::max(glm::dot(wo, wh), 0.f), F0);
+        float G = Utils::Smith_G(wo, wi, normal, alpha);
+
+        glm::vec3 numer = D * F * G;
+        float denom = 4 * glm::max(0.f, glm::dot(normal, wo)) * glm::max(0.f, glm::dot(normal, wi));
+        glm::vec3 spec = numer / glm::max(denom, 0.0001f);
+
+        glm::vec3 noSpec = glm::vec3(1.f) - F;
+        glm::vec3 kS = F;
+        glm::vec3 kD = (1.f - metallic) * noSpec;
+
+        glm::vec3 diff = kD * albedo * INV_PI;
+
+        return diff + spec;
+    }
+
+    __device__ float PDF(glm::vec3 albedo, float metallic, const glm::vec3& wo, glm::vec3& wi,
+        const glm::vec3& normal, float& roughness)
+    {
+        float pdfDiff = glm::max(0.f, glm::dot(wi, normal)) * INV_PI;
+        float pdfSpec = Utils::PDF_GGX(wo, wi, normal, roughness);
+
+        glm::vec3 R = glm::vec3(0.04f);
+        glm::vec3 F0 = glm::mix(R, albedo, metallic);
+        float probSpec = glm::clamp(fresnelSchlickApproximation(glm::dot(wo, normal), F0).r, 0.05f, 0.95f);
+
+        float pdf = (1.f - probSpec) * pdfDiff + probSpec * pdfSpec;
+
+        return pdf;
+    }
 
     __global__ void kernShadeAll(int iter,
         int num_paths,

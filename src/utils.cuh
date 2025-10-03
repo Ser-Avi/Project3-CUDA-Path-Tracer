@@ -115,6 +115,18 @@ namespace Utils
         return localVector.x * b1 + localVector.y * b2 + localVector.z * normal;
     }
 
+    DEV_INLINE glm::vec3 sphericalToCartesian(glm::vec3 spherical) {
+        float r = spherical.x;
+        float theta = spherical.y;
+        float phi = spherical.z;
+
+        float x = r * glm::sin(theta) * glm::cos(phi);
+        float y = r * glm::sin(theta) * glm::sin(phi);
+        float z = r * glm::cos(theta);
+
+        return glm::vec3(x, y, z);
+    }
+
     DEV_INLINE glm::vec3 getWH(glm::vec3 wo, glm::vec2 xi, float roughness)
     {
         glm::vec3 wh;
@@ -133,11 +145,17 @@ namespace Utils
         return wh;
     }
 
-    __device__ float Lambda(const glm::vec3& w, const float roughness);
-    __device__ float TrowbridgeReitzD(const glm::vec3& wh, const float roughness);
-    __device__ float TrowbridgeReitzG(const glm::vec3& wo, const glm::vec3& wi, const float roughness);
+    __device__ float Smith_GGX(glm::vec3 wo, glm::vec3 nor, float alpha);
+    DEV_INLINE float Smith_G(glm::vec3 wo, glm::vec3 wi, glm::vec3 nor, float alpha)
+    {
+        return Smith_GGX(wo, nor, alpha) * Smith_GGX(wi, nor, alpha);
+    }
 
-    __device__ float TrowbridgeReitzPdf(const glm::vec3& wo, const glm::vec3& wh, const float roughness);
+    __device__ float PDF_GGX(glm::vec3 wo, glm::vec3 wi, glm::vec3 nor, float rough);
+
+    __device__ float Lambda(const glm::vec3& w, const float roughness);
+    __device__ float TrowbridgeReitzD(const glm::vec3& wh, const glm::vec3& nor, const float alpha);
+    __device__ float TrowbridgeReitzG(const glm::vec3& wo, const glm::vec3& wi, const float roughness);
 
     DEV_INLINE glm::vec2 dirToUV(glm::vec3 dir) {
         glm::vec2 uv = glm::vec2(glm::atan(dir.z, dir.x), glm::asin(dir.y));
@@ -153,6 +171,22 @@ namespace Utils
 
 namespace PBR
 {
+    DEV_INLINE glm::vec3 fresnelShlickRoughness(float cosTheta, glm::vec3 R, float rough)
+    {
+        return R + (max(glm::vec3(1.0f - rough), R) - R) * pow(glm::clamp(1.0f - cosTheta, 0.0f, 1.0f), 5.0f);
+    }
+
+    DEV_INLINE glm::vec3 fresnelSchlickApproximation(float VdotH, const glm::vec3& R)
+    {
+        return R + ((glm::vec3(1.0f) - R) * glm::pow((1.0f - VdotH), 5.0f));
+    }
+
+    __device__ glm::vec3 BRDF(const glm::vec3& wo, const glm::vec3& normal, glm::vec3& wi,
+        glm::vec3& albedo, float& roughness, const float& metallic);
+
+    __device__ float PDF(glm::vec3 albedo, float metallic, const glm::vec3& wo, glm::vec3& wi,
+        const glm::vec3& normal, float& roughness);
+
     __host__ __device__ __inline__
         thrust::default_random_engine makeSeededRandomEngine(int iter, int index, int depth)
     {
@@ -178,11 +212,6 @@ namespace PBR
         {
             nor = glm::vec3(Utils::sampleTexture(mat->normal_tex, uv));
         }
-    }
-
-    DEV_INLINE glm::vec3 fresnelShlickRoughness(float cosTheta, glm::vec3 R, float rough)
-    {
-        return R + (max(glm::vec3(1.0f - rough), R) - R) * pow(glm::clamp(1.0f - cosTheta, 0.0f, 1.0f), 5.0f);
     }
 
     DEV_INLINE void inlineShadeNosect(
@@ -332,75 +361,59 @@ namespace PBR
         glm::vec2 uv = intSect->uv;
         Material mat = materials[intSect->materialId];
         glm::vec3 albedo = mat.color;
-        glm::vec3 norW = intSect->surfaceNormal;
+        glm::vec3 nor = intSect->surfaceNormal;
         float metallic = mat.metallic;
         float roughness = mat.roughness;
         float ao = 1.;
-        handleMaterialMaps(&mat, uv, albedo, metallic, roughness, ao, norW);
-        glm::vec3 woWorld = -seg->ray.direction;
-        //glm::vec3 wo = Utils::WorldToLocal(woWorld, norW);
-        //glm::vec3 up = glm::vec3(0, 1, 0);
-            
-        // Actual PBR stuff
-        glm::vec3 R = glm::mix(glm::vec3(0.04f), albedo, metallic);
-        glm::vec3 kS = fresnelShlickRoughness(abs(dot(norW, woWorld)), R, roughness);
-        glm::vec3 kD = 1.0f - kS;
-        kD *= 1.0 - metallic;
+        handleMaterialMaps(&mat, uv, albedo, metallic, roughness, ao, nor);
+        glm::vec3 wo = -seg->ray.direction;
+        glm::vec3 wi;
+
+        glm::vec3 R = glm::vec3(0.04f);
+        glm::vec3 F0 = glm::mix(R, albedo, metallic);
+        float probSpec = fresnelSchlickApproximation(glm::abs(glm::dot(wo, nor)), F0).r;
 
         thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, seg->remainingBounces);
         thrust::uniform_real_distribution<float> u01(0, 1);
-        glm::vec3 wiSpec = glm::reflect(-woWorld, norW);
-        glm::vec3 wiDiff = calculateRandomDirectionInHemisphere(intSect->surfaceNormal, rng);
-        // random direction
-        //glm::vec3 xi = glm::vec3(u01(rng), u01(rng), u01(rng));
-        float xi = u01(rng);
-        glm::vec3 wiFin;
+        float roll = u01(rng);
 
-        // in practice, we use kS as a lerp between specular and diffuse
-        // however, we have to decide here, so I will be using its max value
-        // to decide which way to go and multiply by 2 to offset this distinct split.
-        // hoping it works
-
-        // now we do some branching and pray we did it all right
-        if(glm::max(glm::max(kS.x, kS.y), kS.z) > xi)
+        if (roll <= probSpec)
         {
-            if (roughness > EPSILON)
-            {
-                // if roughness is less than 1, then we use it, otherwise we just do perfectly specular
-                glm::vec3 wh = glm::normalize(wiSpec + woWorld);
-                float D = Utils::TrowbridgeReitzD(wh, roughness);
-                float G = Utils::TrowbridgeReitzG(woWorld, wiSpec, roughness);
-                albedo = glm::vec3(1.);
-                // albedo is changed with the D and G terms -> incorporates roughness
-                albedo *= kS * D + G;
-            }
-            else
-            {
-                albedo = glm::vec3(1.);   // we don't want to add our color if we're perfectly specular
-            }
+            //GGS Microfacet
+            glm::vec2 xi = glm::vec2(u01(rng), u01(rng));
+            roughness = glm::clamp(roughness, 0.0f, 1.0f);
+            float alpha = roughness * roughness;
 
-            /*wiFin = Utils::LocalToWorld(wiSpec);*/
-            wiFin = wiSpec;
+            float theta_h = glm::atan(alpha * glm::sqrt(xi.x) / glm::sqrt(1.0f - xi.x));
 
-            //albedo /= kS;             // attenuate?
+            float phi = 2.0f * PI * xi.y;
+
+            glm::vec3 wh = glm::normalize(Utils::sphericalToCartesian(glm::vec3(1.0, theta_h, phi)));
+            glm::vec3 tan = glm::normalize(abs(nor.z) < 0.999f ? glm::cross(glm::vec3(0, 0, 1), nor) : glm::cross(glm::vec3(1, 0, 0), nor));
+            glm::vec3 bitan = glm::cross(nor, tan);
+
+            glm::vec3 whWor = wh.x * tan + wh.y * bitan + wh.z * nor;
+
+            wi = glm::reflect(-wo, whWor);
+
+            if (glm::dot(wi, nor) < 0.0f) wi = -wi; // just in case
         }
         else
         {
-            wiFin = wiDiff;
-            //albedo *= glm::max(glm::dot(norW, wiFin), 0.f);
-            //wiFin = Utils::LocalToWorld(wiDiff);
-            // NOTE: maybe should have irradiance term somehow?
-            // also, maybe shouldn't have absdot term
-            albedo *= kD;
-            //albedo /= glm::vec3(1.f) - kS;    // attenuate?
+            // Full diffuse
+            wi = calculateRandomDirectionInHemisphere(nor, rng);
         }
-        albedo *= ao;
-        // then we bounce a new ray
-        //wiFin = Utils::LocalToWorld(wiFin, norW);
+
+        glm::vec3 brdf = BRDF(wo, nor, wi, albedo, roughness, metallic);
+        float absdot = glm::max(0.f, glm::dot(wi, nor));
+        float pdf = PDF(albedo, metallic, wo, wi, nor, roughness);
+
+        albedo = brdf * absdot / glm::max(pdf, 0.025f);
+
         seg->remainingBounces--;
         glm::vec3 p = seg->ray.origin + seg->ray.direction * intSect->t;
-        seg->ray.origin = p + norW * EPSILON;
-        seg->ray.direction = wiFin;
+        seg->ray.origin = p + wi * EPSILON;
+        seg->ray.direction = wi;
         seg->color *= albedo;
     }
 
