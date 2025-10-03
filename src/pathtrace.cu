@@ -212,10 +212,10 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
             glm::vec2 lensPoint = glm::vec2(u01(rng), u01(rng));
             // point on plane of focus
             lensPoint = cam.lensRadius * Utils::SampleUniformDiskConcentric(lensPoint);
-            float ft = cam.focalLength / glm::max(0.01f, glm::abs(segment.ray.direction.z));
+            float ft = cam.focalLength / glm::max(0.01f, glm::length(segment.ray.direction.z));
             glm::vec3 pFocus = segment.ray.origin + segment.ray.direction * ft;
             //update ray
-            segment.ray.origin += glm::vec3(lensPoint.x, lensPoint.y, 0.f);// cam.right* lensPoint.x + cam.up * lensPoint.y;
+            segment.ray.origin +=  cam.right* lensPoint.x + cam.up * lensPoint.y; //glm::vec3(lensPoint.x, lensPoint.y, 0.f);
             segment.ray.direction = glm::normalize(pFocus - segment.ray.origin);
         }
 
