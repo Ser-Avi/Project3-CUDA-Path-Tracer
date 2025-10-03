@@ -713,7 +713,7 @@ void GLTFManager::beginSequentialUpload() {
     std::cout << "Beginning sequential upload..." << std::endl;
 }
 
-bool GLTFManager::addScene(const GLTFLoader& loader, TextureLoader& texture_loader, std::vector<glm::mat4>& transMats) {
+bool GLTFManager::addScene(const GLTFLoader& loader, TextureLoader& texture_loader, const glm::mat4& transMat) {
     // Get meshes and materials from the loader
     const auto& meshes = loader.getMeshes();
     const auto& materials = loader.getMaterials();
@@ -734,15 +734,15 @@ bool GLTFManager::addScene(const GLTFLoader& loader, TextureLoader& texture_load
 
             // vertex processing
             tri.v0 = glm::vec3(mesh.vertices[idx0 * 3], mesh.vertices[idx0 * 3 + 1], mesh.vertices[idx0 * 3 + 2]);
-            tri.v0 = glm::vec3(transMats[j] * glm::vec4(tri.v0.x, tri.v0.y, tri.v0.z, 1.));
+            tri.v0 = glm::vec3(transMat * glm::vec4(tri.v0.x, tri.v0.y, tri.v0.z, 1.));
             tri.v1 = glm::vec3(mesh.vertices[idx1 * 3], mesh.vertices[idx1 * 3 + 1], mesh.vertices[idx1 * 3 + 2]);
-            tri.v1 = glm::vec3(transMats[j] * glm::vec4(tri.v1.x, tri.v1.y, tri.v1.z, 1.));
+            tri.v1 = glm::vec3(transMat * glm::vec4(tri.v1.x, tri.v1.y, tri.v1.z, 1.));
             tri.v2 = glm::vec3(mesh.vertices[idx2 * 3], mesh.vertices[idx2 * 3 + 1], mesh.vertices[idx2 * 3 + 2]);
-            tri.v2 = glm::vec3(transMats[j] * glm::vec4(tri.v2.x, tri.v2.y, tri.v2.z, 1.));
+            tri.v2 = glm::vec3(transMat * glm::vec4(tri.v2.x, tri.v2.y, tri.v2.z, 1.));
 
             // Normals
             if (!mesh.normals.empty()) {
-                glm::mat4 transInv = glm::transpose(transMats[j]);
+                glm::mat4 transInv = glm::transpose(transMat);
                 transInv = glm::inverse(transInv);
                 tri.n0 = glm::vec3(mesh.normals[idx0 * 3], mesh.normals[idx0 * 3 + 1], mesh.normals[idx0 * 3 + 2]);
                 tri.n0 = glm::vec3(transInv * glm::vec4(tri.n0.x, tri.n0.y, tri.n0.z, 0.));

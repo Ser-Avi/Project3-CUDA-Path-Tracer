@@ -1,0 +1,8 @@
+Model Information:
+* title:	Time Machine
+* source:	https://sketchfab.com/3d-models/time-machine-a11c6d625e3f46dca26d6e4c4edf2a79
+* author:	vertexmonster (https://sketchfab.com/vertexmonster)
+
+Model License:
+* license type:	SKETCHFAB Standard (https://sketchfab.com/licenses)
+* requirements:	Under basic restrictions, use worldwide, on all types of media, commercially or not, and in all types of derivative works

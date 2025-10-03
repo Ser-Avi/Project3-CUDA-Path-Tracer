@@ -9,6 +9,28 @@ namespace Utils
         }
     }
 
+
+    __host__ __device__ glm::vec2 SampleUniformDiskConcentric(glm::vec2 u)
+    {
+        // first we map to [-1, 1]^2
+        glm::vec2 uOffset = 2.f * u - glm::vec2(1.f);
+        if (uOffset.x < EPSILON && uOffset.y < EPSILON) return glm::vec2(0.f);
+
+        // apply concentric mapping
+        float theta, r;
+        if (glm::abs(uOffset.x) > glm::abs(uOffset.y))
+        {
+            r = uOffset.x;
+            theta = PI_OVR_FOUR * (uOffset.y / uOffset.x);
+        }
+        else
+        {
+            r = uOffset.y;
+            theta = PI_OVR_TWO - PI_OVR_FOUR * (uOffset.x / uOffset.y);
+        }
+        return r * glm::vec2(glm::cos(theta), glm::sin(theta));
+    }
+
     __global__ void kernIdentifyStartEnd(int N, ShadeableIntersection* intSects,
         int* materialStartIndices, int* materialEndIndices) {
         int index = (blockIdx.x * blockDim.x) + threadIdx.x;

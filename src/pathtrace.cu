@@ -180,14 +180,12 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
     if (x < cam.resolution.x && y < cam.resolution.y) {
         int index = x + (y * cam.resolution.x);
         PathSegment& segment = pathSegments[index];
-
-        segment.ray.origin = cam.position;
+        thrust::default_random_engine rng = PBR::makeSeededRandomEngine(iter, index, index);
 
         // TODO: implement antialiasing by jittering the ray
         // creating random seed
         if (isStochastic)
         {
-            thrust::default_random_engine rng = PBR::makeSeededRandomEngine(iter, index, index);
             thrust::uniform_real_distribution<float> jitter(-.5f, 0.5f);
             // offset
             float jitterX = jitter(rng);
@@ -204,6 +202,24 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
                 - cam.up * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f));
         }
 
+        segment.ray.origin = cam.position;
+
+        // depth of field
+        if (cam.lensRadius > 0)
+        {
+            // sample
+            thrust::uniform_real_distribution<float> u01(0, 1);
+            glm::vec2 lensPoint = glm::vec2(u01(rng), u01(rng));
+            // point on plane of focus
+            lensPoint = cam.lensRadius * Utils::SampleUniformDiskConcentric(lensPoint);
+            float ft = cam.focalLength / glm::max(0.01f, glm::abs(segment.ray.direction.z));
+            glm::vec3 pFocus = segment.ray.origin + segment.ray.direction * ft;
+            //update ray
+            segment.ray.origin += glm::vec3(lensPoint.x, lensPoint.y, 0.f);// cam.right* lensPoint.x + cam.up * lensPoint.y;
+            segment.ray.direction = glm::normalize(pFocus - segment.ray.origin);
+        }
+
+
         segment.pixelIndex = index;
         segment.remainingBounces = traceDepth;
         segment.color = glm::vec3(1.f);
@@ -215,7 +231,7 @@ __global__ void kernDrawBVH(
     int depth,
     int num_paths,
     PathSegment* pathSegments,
-    ShadeableIntersection* intersections, BVHNode* BVHs)
+    ShadeableIntersection* intersections, BVHNode* BVHs, float color)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx > num_paths - 1) { return; }
@@ -233,7 +249,7 @@ __global__ void kernDrawBVH(
         if (t < 1e29f) // intersected a bounding box
         {
             // we will simply add some white and continue for each bvh intersection
-            pathSegment->color += glm::vec3(0.01f);
+            pathSegment->color += glm::vec3(color);
             // If this is an internal node, push children
             if (node.triCount < 1)
             {
@@ -602,13 +618,14 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
         }
         else
         {
+            float col = glm::clamp(hst_scene->numBVHnodes / 1000000.f, 0.001f, 0.2f);
             kernDrawBVH << <numblocksPathSegmentTracing, blockSize1d >> > (
                 depth,
                 num_paths,
                 dev_paths,
                 dev_intersections,
-                dev_bvh
-                );
+                dev_bvh,
+                col);
             iterationComplete = true;
         }
 

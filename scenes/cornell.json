@@ -33,9 +33,15 @@
     },
         "GLTF": [
         {
-        "Path": "../scenes/BoxTex/BoxTextured.gltf",
+        "Path": "../scenes/CesiumMan/CesiumMan.gltf",
+        "Rot": [90.0, 180.0, 0.0],
+        "Trans": [0.5, 1.25, -0.1],
+        "Scale": [4, 4, 4]
+        },
+        {
+        "Path": "../scenes/dragon.gltf",
         "Rot": [0.0, 0.0, 0.0],
-        "Trans": [0.0, 0.0, 0.0],
+        "Trans": [0.0, -0.2, 0.0],
         "Scale": [1.0, 1.0, 1.0]
         }
     ],
@@ -93,13 +99,6 @@
             "TRANS":[5.0,5.0,0.0],
             "ROTAT":[0.0,0.0,0.0],
             "SCALE":[0.01,10.0,10.0]
-        },
-        {
-            "TYPE":"sphere",
-            "MATERIAL":"specular_white",
-            "TRANS":[-1.0,4.0,-1.0],
-            "ROTAT":[0.0,0.0,0.0],
-            "SCALE":[3.0,3.0,3.0]
         }
     ]
 }

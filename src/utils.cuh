@@ -64,6 +64,7 @@ namespace Utils
     DEV_INLINE float Cos2Phi(glm::vec3 w) { return CosPhi(w) * CosPhi(w); }
     DEV_INLINE float Sin2Phi(glm::vec3 w) { return SinPhi(w) * SinPhi(w); }
 
+    __host__ __device__ glm::vec2 SampleUniformDiskConcentric(glm::vec2 u);
 
     /// <summary>
     /// Creates the basis vectors based on a given normal n.

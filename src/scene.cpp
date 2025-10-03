@@ -179,15 +179,15 @@ void Scene::loadFromGLTF()
 {
     GLTFLoader loader;
     gltfManager.beginSequentialUpload();
-    for (std::string gltfName : gltfs)
+    for (int i = 0; i < gltfs.size(); ++i)
     {
-        if (!loader.load(gltfName)) {
-            std::cerr << "Failed to load GLTF file:" << gltfName << std::endl;
+        if (!loader.load(gltfs[i])) {
+            std::cerr << "Failed to load GLTF file:" << gltfs[i] << std::endl;
             return;
         }
         else
         {
-            gltfManager.addScene(loader, textLoader, gltfMatrices);
+            gltfManager.addScene(loader, textLoader, gltfMatrices[i]);
             loader.clear();
         }
     }

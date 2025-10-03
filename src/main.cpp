@@ -74,6 +74,8 @@ std::string envmapPath = "";
 std::string selectedPath = "";
 const char* mapNames[] = { "None", "Bridge", "Bonifacio Street", "Fireplace" };
 int mapIdx = 0;
+float imguiFocal = 10.f;
+float imguiLens = 0.f;
 
 std::string currentTimeString()
 {
@@ -293,6 +295,16 @@ void RenderImGui()
     ImGui::Checkbox("Toggle Material Sorting", &isMatSort);
     ImGui::Checkbox("Toggle Stochastic Sampling", &isStochastic);
     ImGui::Checkbox("Toggle BVH Visualizing", &isBVHvis);
+
+    // Depth of Camera
+    ImGui::SliderFloat("Focal Length", &imguiFocal, 0.f, 20.f, "%.1f");
+    ImGui::SliderFloat("Lens Radius", &imguiLens, 0.f, 10.f, "%.1f");
+    if (imguiFocal != renderState->camera.focalLength || imguiLens != renderState->camera.lensRadius)
+    {
+        renderState->camera.focalLength = imguiFocal;
+        renderState->camera.lensRadius = imguiLens;
+        camchanged = true;
+    }
 
     // Environment Map selection
     ImGui::Text("Environment Maps");
