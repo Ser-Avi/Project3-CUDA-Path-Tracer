@@ -183,10 +183,10 @@ namespace PBR
     }
 
     __device__ glm::vec3 BRDF(const glm::vec3& wo, const glm::vec3& normal, glm::vec3& wi,
-        glm::vec3& albedo, float& roughness, const float& metallic);
+        glm::vec3& albedo, float& roughness, const float& metallic, const glm::vec3& F0);
 
     __device__ float PDF(glm::vec3 albedo, float metallic, const glm::vec3& wo, glm::vec3& wi,
-        const glm::vec3& normal, float& roughness);
+        const glm::vec3& normal, float& roughness, const glm::vec3& F0);
 
     __host__ __device__ __inline__
         thrust::default_random_engine makeSeededRandomEngine(int iter, int index, int depth)
@@ -405,9 +405,9 @@ namespace PBR
             wi = calculateRandomDirectionInHemisphere(nor, rng);
         }
 
-        glm::vec3 brdf = BRDF(wo, nor, wi, albedo, roughness, metallic);
+        glm::vec3 brdf = BRDF(wo, nor, wi, albedo, roughness, metallic, F0);
         float absdot = glm::max(0.f, glm::dot(wi, nor));
-        float pdf = PDF(albedo, metallic, wo, wi, nor, roughness);
+        float pdf = PDF(albedo, metallic, wo, wi, nor, roughness, F0);
 
         albedo = brdf * absdot / glm::max(pdf, 0.025f);
 

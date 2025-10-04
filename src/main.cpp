@@ -72,7 +72,8 @@ bool isStochastic = true;
 bool isBVHvis = false;
 std::string envmapPath = "";
 std::string selectedPath = "";
-const char* mapNames[] = { "None", "Bridge", "Bonifacio Street", "Fireplace" };
+const char* mapNames[] = { "None", "Bridge", "Bonifacio Street", "Fireplace",
+                            "Light Interior", "Preller Drive", "Kloppenheim", "Kiara Dawn", "Photostudio"};
 int mapIdx = 0;
 float imguiFocal = 10.f;
 float imguiLens = 0.f;
@@ -261,6 +262,48 @@ bool init()
     return true;
 }
 
+float toSRGB(float x) {
+    x = fmaxf(x, 0.0f);
+    return (x <= 0.0031308f) ? (12.92f * x) : (1.055f * powf(x, 1.0f / 2.4f) - 0.055f);
+}
+
+glm::vec3 reinhardOp(glm::vec3 color) {
+    color = color / (glm::vec3(1.0f) + color);
+    return glm::clamp(color, 0.0f, 1.0f);
+}
+
+glm::vec3 convertOutCols(glm::vec3 color)
+{
+    color = reinhardOp(color);
+    return glm::vec3(toSRGB(color.x), toSRGB(color.y), toSRGB(color.z));
+}
+
+void saveImage()
+{
+    float samples = iteration;
+    // output image file
+    Image img(width, height);
+
+    for (int x = 0; x < width; x++)
+    {
+        for (int y = 0; y < height; y++)
+        {
+            int index = x + (y * width);
+            glm::vec3 pix = renderState->image[index];
+            img.setPixel(width - 1 - x, y, convertOutCols(glm::vec3(pix) / samples));
+        }
+    }
+
+    std::string filename = renderState->imageName;
+    std::ostringstream ss;
+    ss << filename << "." << startTimeString << "." << samples << "samp";
+    filename = ss.str();
+
+    // CHECKITOUT
+    img.savePNG(filename);
+    //img.saveHDR(filename);  // Save a Radiance HDR file
+}
+
 void InitImguiData(GuiDataContainer* guiData)
 {
     imguiData = guiData;
@@ -283,6 +326,11 @@ void RenderImGui()
     static int counter = 0;
 
     ImGui::Begin("Path Tracer Analytics");                  // Create a window called "Hello, world!" and append into it.
+    ImGui::Text("Traced Depth %d", imguiData->TracedDepth);
+    ImGui::Text("Number of triangles from GLTFS: %d", scene->numTriangles);
+    ImGui::Text("Number of BVH Nodes: %d", scene->numBVHnodes);
+    ImGui::Text("Number of iterations: %d", iteration);
+    ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
     
     // LOOK: Un-Comment to check the output window and usage
     //ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
@@ -291,73 +339,135 @@ void RenderImGui()
 
     //ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
     //ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
-    ImGui::Checkbox("Toggle Stream Compaction", &isCompact);
-    ImGui::Checkbox("Toggle Material Sorting", &isMatSort);
-    ImGui::Checkbox("Toggle Stochastic Sampling", &isStochastic);
-    ImGui::Checkbox("Toggle BVH Visualizing", &isBVHvis);
-
-    // Depth of Camera
-    ImGui::SliderFloat("Focal Length", &imguiFocal, 0.f, 20.f, "%.1f");
-    ImGui::SliderFloat("Lens Radius", &imguiLens, 0.f, 10.f, "%.1f");
-    if (imguiFocal != renderState->camera.focalLength || imguiLens != renderState->camera.lensRadius)
+    ImGuiTabBarFlags tabFlags = ImGuiTabBarFlags_None;
+    if (ImGui::BeginTabBar("Tabs", tabFlags))
     {
-        renderState->camera.focalLength = imguiFocal;
-        renderState->camera.lensRadius = imguiLens;
-        camchanged = true;
+        if (ImGui::BeginTabItem("Visuals"))
+        {
+            if (scene->numBVHnodes != 0)
+            {
+                ImGui::Checkbox("Toggle BVH Visualizing", &isBVHvis);
+            }
+            // Environment Map selection
+            ImGui::Text("Environment Maps");
+            ImGui::Combo(" ", &mapIdx, mapNames, IM_ARRAYSIZE(mapNames));
+            switch (mapIdx)
+            {
+            case 0:
+                selectedPath = "";
+                if (envmapPath != selectedPath)
+                {
+                    camchanged = true;
+                    envmapPath = selectedPath;
+                    scene->clearEnvironmentMap();
+                }
+                break;
+            case 1:
+                selectedPath = "../scenes/Environments/Bridge_3k.hdr";
+                if (envmapPath != selectedPath)
+                {
+                    camchanged = true;
+                    envmapPath = selectedPath;
+                    scene->loadEnvironmentMap(envmapPath);
+                }
+                break;
+            case 2:
+                selectedPath = "../scenes/Environments/bonifacio_street.hdr";
+                if (envmapPath != selectedPath)
+                {
+                    camchanged = true;
+                    envmapPath = selectedPath;
+                    scene->loadEnvironmentMap(envmapPath);
+                }
+                break;
+            case 3:
+                selectedPath = "../scenes/Environments/fireplace_4k.hdr";
+                if (envmapPath != selectedPath)
+                {
+                    camchanged = true;
+                    envmapPath = selectedPath;
+                    scene->loadEnvironmentMap(envmapPath);
+                }
+                break;
+            case 4:
+                selectedPath = "../scenes/Environments/cayley_interior_4k.hdr";
+                if (envmapPath != selectedPath)
+                {
+                    camchanged = true;
+                    envmapPath = selectedPath;
+                    scene->loadEnvironmentMap(envmapPath);
+                }
+                break;
+            case 5:
+                selectedPath = "../scenes/Environments/preller_drive_4k.hdr";
+                if (envmapPath != selectedPath)
+                {
+                    camchanged = true;
+                    envmapPath = selectedPath;
+                    scene->loadEnvironmentMap(envmapPath);
+                }
+                break;
+            case 6:
+                selectedPath = "../scenes/Environments/kloppenheim_02_4k.hdr";
+                if (envmapPath != selectedPath)
+                {
+                    camchanged = true;
+                    envmapPath = selectedPath;
+                    scene->loadEnvironmentMap(envmapPath);
+                }
+                break;
+            case 7:
+                selectedPath = "../scenes/Environments/kiara_1_dawn_4k.hdr";
+                if (envmapPath != selectedPath)
+                {
+                    camchanged = true;
+                    envmapPath = selectedPath;
+                    scene->loadEnvironmentMap(envmapPath);
+                }
+                break;
+            case 8:
+                selectedPath = "../scenes/Environments/brown_photostudio_02_4k.hdr";
+                if (envmapPath != selectedPath)
+                {
+                    camchanged = true;
+                    envmapPath = selectedPath;
+                    scene->loadEnvironmentMap(envmapPath);
+                }
+                break;
+            }
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Camera and Rays"))
+        {
+            ImGui::Checkbox("Toggle Stochastic Sampling", &isStochastic);
+            // Depth of Camera
+            ImGui::SliderFloat("Focal Length", &imguiFocal, 0.1f, 20.f, "%.1f");
+            ImGui::SliderFloat("Lens Radius", &imguiLens, 0.f, 5.f, "%.1f");
+            if (imguiFocal != renderState->camera.focalLength || imguiLens != renderState->camera.lensRadius)
+            {
+                renderState->camera.focalLength = imguiFocal;
+                renderState->camera.lensRadius = imguiLens;
+                camchanged = true;
+            }
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Performance"))
+        {
+            ImGui::Checkbox("Toggle Stream Compaction", &isCompact);
+            ImGui::Checkbox("Toggle Material Sorting", &isMatSort);
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
     }
 
-    // Environment Map selection
-    ImGui::Text("Environment Maps");
-    ImGui::Combo(" ", &mapIdx, mapNames, IM_ARRAYSIZE(mapNames));
-    switch (mapIdx)
-    {
-    case 0:
-        selectedPath = "";
-        if (envmapPath != selectedPath)
-        {
-            camchanged = true;
-            envmapPath = selectedPath;
-            scene->clearEnvironmentMap();
-        }
-        break;
-    case 1:
-        selectedPath = "../scenes/Environments/Bridge_3k.hdr";
-        if (envmapPath != selectedPath)
-        {
-            camchanged = true;
-            envmapPath = selectedPath;
-            scene->loadEnvironmentMap(envmapPath);
-        }
-        break;
-    case 2:
-        selectedPath = "../scenes/Environments/bonifacio_street.hdr";
-        if (envmapPath != selectedPath)
-        {
-            camchanged = true;
-            envmapPath = selectedPath;
-            scene->loadEnvironmentMap(envmapPath);
-        }
-        break;
-    case 3:
-        selectedPath = "../scenes/Environments/fireplace_4k.hdr";
-        if (envmapPath != selectedPath)
-        {
-            camchanged = true;
-            envmapPath = selectedPath;
-            scene->loadEnvironmentMap(envmapPath);
-        }
-        break;
+    if (ImGui::Button("Save Image")) {
+        saveImage();
     }
     
     //if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
     //    counter++;
     //ImGui::SameLine();
     //ImGui::Text("counter = %d", counter);
-    ImGui::Text("STATS");
-    ImGui::Text("Traced Depth %d", imguiData->TracedDepth);
-    ImGui::Text("Number of triangles from GLTFS: %d", scene->numTriangles);
-    ImGui::Text("Number of BVH Nodes: %d", scene->numBVHnodes);
-    ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
     ImGui::End();
 
 
@@ -462,32 +572,6 @@ int main(int argc, char** argv)
     mainLoop();
 
     return 0;
-}
-
-void saveImage()
-{
-    float samples = iteration;
-    // output image file
-    Image img(width, height);
-
-    for (int x = 0; x < width; x++)
-    {
-        for (int y = 0; y < height; y++)
-        {
-            int index = x + (y * width);
-            glm::vec3 pix = renderState->image[index];
-            img.setPixel(width - 1 - x, y, glm::vec3(pix) / samples);
-        }
-    }
-
-    std::string filename = renderState->imageName;
-    std::ostringstream ss;
-    ss << filename << "." << startTimeString << "." << samples << "samp";
-    filename = ss.str();
-
-    // CHECKITOUT
-    img.savePNG(filename);
-    //img.saveHDR(filename);  // Save a Radiance HDR file
 }
 
 void runCuda()

@@ -135,14 +135,11 @@ namespace Utils
 namespace PBR
 {
     __device__ glm::vec3 BRDF(const glm::vec3& wo, const glm::vec3& normal, glm::vec3& wi,
-        glm::vec3& albedo, float& roughness, const float& metallic)
+        glm::vec3& albedo, float& roughness, const float& metallic, const glm::vec3& F0)
     {
         glm::vec3 wh = glm::normalize(wo + wi);
         roughness = glm::clamp(roughness, 0.05f, 1.0f);
         float alpha = roughness * roughness;
-
-        glm::vec3 R = glm::vec3(0.04f);
-        glm::vec3 F0 = glm::mix(R, albedo, metallic);
 
         float D = Utils::TrowbridgeReitzD(wh, normal, alpha);
         glm::vec3 F = fresnelSchlickApproximation(glm::max(glm::dot(wo, wh), 0.f), F0);
@@ -162,13 +159,11 @@ namespace PBR
     }
 
     __device__ float PDF(glm::vec3 albedo, float metallic, const glm::vec3& wo, glm::vec3& wi,
-        const glm::vec3& normal, float& roughness)
+        const glm::vec3& normal, float& roughness, const glm::vec3& F0)
     {
         float pdfDiff = glm::max(0.f, glm::dot(wi, normal)) * INV_PI;
         float pdfSpec = Utils::PDF_GGX(wo, wi, normal, roughness);
 
-        glm::vec3 R = glm::vec3(0.04f);
-        glm::vec3 F0 = glm::mix(R, albedo, metallic);
         float probSpec = glm::clamp(fresnelSchlickApproximation(glm::dot(wo, normal), F0).r, 0.05f, 0.95f);
 
         float pdf = (1.f - probSpec) * pdfDiff + probSpec * pdfSpec;

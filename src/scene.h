@@ -24,6 +24,6 @@ public:
     EnvMap curr_env_map;
     bool loadEnvironmentMap(const std::string& hdr_filename);
     void clearEnvironmentMap();
-    uint32_t numTriangles;
-    uint32_t numBVHnodes;
+    uint32_t numTriangles = 0;
+    uint32_t numBVHnodes = 0;
 };

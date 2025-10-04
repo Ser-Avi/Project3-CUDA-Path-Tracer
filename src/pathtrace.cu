@@ -618,7 +618,7 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
         }
         else
         {
-            float col = glm::clamp(hst_scene->numBVHnodes / 1000000.f, 0.001f, 0.2f);
+            float col = glm::clamp((float) glm::sqrt(hst_scene->numBVHnodes) / 1000000.f, 0.005f, 0.2f);
             kernDrawBVH << <numblocksPathSegmentTracing, blockSize1d >> > (
                 depth,
                 num_paths,
