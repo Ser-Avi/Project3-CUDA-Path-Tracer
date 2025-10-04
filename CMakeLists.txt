@@ -63,6 +63,7 @@ set(headers
     src/stb_image.h
     src/stb_image_write.h
     src/GLTFManager.h
+    src/denoiser.h
 )
 
 set(sources
@@ -78,6 +79,7 @@ set(sources
     src/utils.cu
     src/tiny_gltf_util.cpp
     src/GLTFManager.cu
+    src/denoiser.cpp
 )
 
 set(imgui_headers
@@ -121,6 +123,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     #stream_compaction  # TODO: uncomment if using your stream compaction
     CUDA::cudart
 )
+
 set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES CUDA_ARCHITECTURES native)
 
