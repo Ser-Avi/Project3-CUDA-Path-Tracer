@@ -26,7 +26,7 @@
         {
             "TYPE":"Pbr",
             "RGB":[0.2, 0.98, 0.2],
-            "ROUGHNESS": 0.0,
+            "ROUGHNESS": 1.0,
             "METALLIC" : 0.0
         },
         "specular_white":
