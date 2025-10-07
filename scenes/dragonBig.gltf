@@ -17,10 +17,10 @@
 			"mesh":0,
 			"name":"dragon",
 			"rotation":[
-				0.7071068286895752,
+				0.70710688829422,
 				0,
 				0,
-				0.7071068286895752
+				0.7071066498756409
 			]
 		}
 	],
@@ -42,7 +42,7 @@
 		{
 			"bufferView":0,
 			"componentType":5126,
-			"count":440303,
+			"count":440447,
 			"max":[
 				0.20739500224590302,
 				0.5277529954910278,
@@ -58,7 +58,7 @@
 		{
 			"bufferView":1,
 			"componentType":5126,
-			"count":440303,
+			"count":440447,
 			"type":"VEC3"
 		},
 		{
@@ -71,26 +71,26 @@
 	"bufferViews":[
 		{
 			"buffer":0,
-			"byteLength":5283636,
+			"byteLength":5285364,
 			"byteOffset":0,
 			"target":34962
 		},
 		{
 			"buffer":0,
-			"byteLength":5283636,
-			"byteOffset":5283636,
+			"byteLength":5285364,
+			"byteOffset":5285364,
 			"target":34962
 		},
 		{
 			"buffer":0,
 			"byteLength":10455672,
-			"byteOffset":10567272,
+			"byteOffset":10570728,
 			"target":34963
 		}
 	],
 	"buffers":[
 		{
-			"byteLength":21022944,
+			"byteLength":21026400,
 			"uri":"dragonBig.bin"
 		}
 	]

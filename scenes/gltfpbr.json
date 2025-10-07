@@ -1,0 +1,144 @@
+{
+    "Materials":
+    {
+        "light":
+        {
+            "TYPE":"Emitting",
+            "RGB":[1.0, 1.0, 1.0],
+            "EMITTANCE": 10.0
+        },
+        "glass1":
+        {
+            "TYPE":"Dielectric",
+            "RGB":[0.98, 0.98, 0.98],
+            "ROUGHNESS":0.0,
+            "IOR":1.0,
+            "REFLECTIONODDS":0.5
+        },
+                "glass125":
+        {
+            "TYPE":"Dielectric",
+            "RGB":[0.98, 0.98, 0.98],
+            "ROUGHNESS":0.0,
+            "IOR":1.25,
+            "REFLECTIONODDS":0.5
+        },
+                "glass15":
+        {
+            "TYPE":"Dielectric",
+            "RGB":[0.98, 0.98, 0.98],
+            "ROUGHNESS":0.0,
+            "IOR":1.5,
+            "REFLECTIONODDS":0.5
+        },
+                "glass175":
+        {
+            "TYPE":"Dielectric",
+            "RGB":[0.98, 0.98, 0.98],
+            "ROUGHNESS":0.0,
+            "IOR":1.75,
+            "REFLECTIONODDS":0.5
+        },
+                "glass2":
+        {
+            "TYPE":"Dielectric",
+            "RGB":[0.98, 0.98, 0.98],
+            "ROUGHNESS":0.0,
+            "IOR":2.0,
+            "REFLECTIONODDS":0.5
+        },
+                "glass225":
+        {
+            "TYPE":"Dielectric",
+            "RGB":[0.98, 0.98, 0.98],
+            "ROUGHNESS":0.0,
+            "IOR":2.25,
+            "REFLECTIONODDS":0.5
+        },
+                "glass25":
+        {
+            "TYPE":"Dielectric",
+            "RGB":[0.98, 0.98, 0.98],
+            "ROUGHNESS":0.0,
+            "IOR":2.5,
+            "REFLECTIONODDS":0.5
+        },
+        "diffuse_black":
+        {
+            "TYPE":"Diffuse",
+            "RGB":[0.0, 0.0, 0.0]
+        }
+    },
+    "GLTF": [
+        {
+        "Path": "../scenes/Balls/MetalRoughSpheres.gltf",
+        "Rot": [0.0, -90.0, -90.0],
+        "Trans": [0.0, 0.0, 0.0],
+        "Scale": [0.5, 0.5, 0.5]
+        }
+
+    ],
+    "Camera":
+    {
+        "RES":[800,800],
+        "FOVY":45.0,
+        "ITERATIONS":5000,
+        "DEPTH":8,
+        "FILE":"gltfpbr",
+        "EYE":[0.0,0.0,10.5],
+        "LOOKAT":[0.0,0.0,0.0],
+        "UP":[0.0,1.0,0.0]
+    },
+    "Objects":
+    [
+        {
+            "TYPE": "sphere",
+            "MATERIAL": "glass2",
+            "TRANS":[-6.0,-1.5,4],
+            "ROTAT":[0,0,0],
+            "SCALE":[1,1,1]
+        },
+        {
+            "TYPE": "sphere",
+            "MATERIAL": "glass225",
+            "TRANS":[-6.0,-3,4],
+            "ROTAT":[0,0,0],
+            "SCALE":[1,1,1]
+        },
+        {
+            "TYPE": "sphere",
+            "MATERIAL": "glass25",
+            "TRANS":[-6.0,-4.5,4],
+            "ROTAT":[0,0,0],
+            "SCALE":[1,1,1]
+        },
+        {
+            "TYPE": "sphere",
+            "MATERIAL": "glass175",
+            "TRANS":[-6.0,0,4],
+            "ROTAT":[0,0,0],
+            "SCALE":[1,1,1]
+        },
+        {
+            "TYPE": "sphere",
+            "MATERIAL": "glass15",
+            "TRANS":[-6.0,1.5,4],
+            "ROTAT":[0,0,0],
+            "SCALE":[1,1,1]
+        },
+        {
+            "TYPE": "sphere",
+            "MATERIAL": "glass125",
+            "TRANS":[-6.0,3,4],
+            "ROTAT":[0,0,0],
+            "SCALE":[1,1,1]
+        },
+        {
+            "TYPE": "sphere",
+            "MATERIAL": "glass1",
+            "TRANS":[-6.0,4.5,4],
+            "ROTAT":[0,0,0],
+            "SCALE":[1,1,1]
+        }
+    ]
+}

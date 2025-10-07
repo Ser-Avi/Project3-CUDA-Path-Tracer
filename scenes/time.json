@@ -1,0 +1,196 @@
+{
+    "Materials":
+    {
+        "white_light":
+        {
+            "TYPE":"Emitting",
+            "RGB":[0.9, 0.9, 0.9],
+            "EMITTANCE": 10.0
+        },
+        "red_light":
+        {
+            "TYPE":"Emitting",
+            "RGB":[0.9, 0.3, 0.3],
+            "EMITTANCE": 8.0
+        },
+        "left_light":
+        {
+            "TYPE":"Emitting",
+            "RGB":[0.5, 0.5, 0.4],
+            "EMITTANCE": 12.0
+        },
+        "blue_light":
+        {
+            "TYPE":"Emitting",
+            "RGB":[0.4, 0.15, 0.7],
+            "EMITTANCE": 8.0
+        },
+        "small_light":
+        {
+            "TYPE":"Emitting",
+            "RGB":[0.8, 0.8, 0.0],
+            "EMITTANCE": 20.0
+        },
+        "metal_floor":
+        {
+            "TYPE":"Pbr",
+            "RGB":[0.3, 0.3, 0.3],
+            "ROUGHNESS": 0.4,
+            "METALLIC" : 0.8
+        },
+        "metal_wall":
+        {
+            "TYPE":"Pbr",
+            "RGB":[0.5, 0.5, 0.5],
+            "ROUGHNESS": 0.2,
+            "METALLIC" : 0.5
+        },
+        "back_wall":
+        {
+            "TYPE":"Pbr",
+            "RGB":[0.8, 0.8, 0.8],
+            "ROUGHNESS": 0.1,
+            "METALLIC" : 0.7
+        },
+        "left_wall":
+        {
+            "TYPE":"Pbr",
+            "RGB":[0.8, 0.8, 0.8],
+            "ROUGHNESS": 0.05,
+            "METALLIC" : 0.9
+        }
+    },
+    "GLTF": [
+        {
+        "Path": "../scenes/time/scene75.gltf",
+        "Rot": [-90.0, 0.0, 0.0],
+        "Trans": [2.0, -1.0, 0.0],
+        "Scale": [0.1, 0.1, 0.1]
+        },
+        {
+        "Path": "../scenes/spacemarine/scene.gltf",
+        "Rot": [90.0, 0.0, -90.0],
+        "Trans": [-1.2, 1.0, -0.2],
+        "Scale": [0.025, 0.025, 0.025]
+        },
+        {
+        "Path": "../scenes/monster/scene.gltf",
+        "Rot": [0.0, -90.0, 160.0],
+        "Trans": [0.0, 1.7, -0.5],
+        "Scale": [0.2, 0.2, 0.2]
+        }
+
+
+    ],
+    "Camera":
+    {
+        "RES":[2000, 1600],
+        "FOVY":45.0,
+        "ITERATIONS":5000,
+        "DEPTH":12,
+        "FILE":"time",
+        "EYE":[0.0,0.0,10.5],
+        "LOOKAT":[0.0,0.5,0.0],
+        "UP":[0.0,1.0,0.0]
+    },
+    "Objects":
+    [   {
+            "TYPE":"cube",
+            "MATERIAL":"left_wall",
+            "TRANS":[0.0,12.0,0.0],
+            "ROTAT":[0.0,0.0,0.0],
+            "SCALE":[40.0,0.5,40.0]
+        },
+        {
+            "TYPE":"cube",
+            "MATERIAL":"left_wall",
+            "TRANS":[0.0,0.0,-4.5],
+            "ROTAT":[0.0,0.0,0.0],
+            "SCALE":[20.0,20.0,1.0]
+        },
+        {
+            "TYPE":"cube",
+            "MATERIAL":"left_wall",
+            "TRANS":[4.0,0.0,0.0],
+            "ROTAT":[0.0,0.0,0.0],
+            "SCALE":[1.0,20.0,28.5]
+        },
+        {
+            "TYPE":"cube",
+            "MATERIAL":"metal_floor",
+            "TRANS":[-2.0,-1.1,0.0],
+            "ROTAT":[0.0,0.0,0.0],
+            "SCALE":[20.0,0.1,28.5]
+        },
+        {
+            "TYPE":"cube",
+            "MATERIAL":"red_light",
+            "TRANS":[0.0,12.0,0.0],
+            "ROTAT":[0.0,0.0,0.0],
+            "SCALE":[20.0,1.0,20.0]
+        },
+        {
+            "TYPE":"sphere",
+            "MATERIAL":"blue_light",
+            "TRANS":[2, 1.8, 0.0],
+            "ROTAT":[0, 0, 0],
+            "SCALE":[1.0, 2.5, 2.5]
+        },
+        {
+            "TYPE":"sphere",
+            "MATERIAL":"small_light",
+            "TRANS":[-0.75, -1.05, 1.0],
+            "ROTAT":[0, 0, 0],
+            "SCALE":[0.2, 0.2, 0.2]
+        },
+        {
+            "TYPE":"sphere",
+            "MATERIAL":"small_light",
+            "TRANS":[-2, -1.05, 1.0],
+            "ROTAT":[0, 0, 0],
+            "SCALE":[0.2, 0.2, 0.2]
+        },
+        {
+            "TYPE":"sphere",
+            "MATERIAL":"small_light",
+            "TRANS":[-3.3, -1.05, 1.0],
+            "ROTAT":[0, 0, 0],
+            "SCALE":[0.2, 0.2, 0.2]
+        },
+        {
+            "TYPE":"sphere",
+            "MATERIAL":"small_light",
+            "TRANS":[-0.75, -1.05, -1.0],
+            "ROTAT":[0, 0, 0],
+            "SCALE":[0.2, 0.2, 0.2]
+        },
+        {
+            "TYPE":"sphere",
+            "MATERIAL":"small_light",
+            "TRANS":[-2, -1.05, -1.0],
+            "ROTAT":[0, 0, 0],
+            "SCALE":[0.2, 0.2, 0.2]
+        },
+        {
+            "TYPE":"sphere",
+            "MATERIAL":"small_light",
+            "TRANS":[-3.3, -1.05, -1.0],
+            "ROTAT":[0, 0, 0],
+            "SCALE":[0.2, 0.2, 0.2]
+        },
+        {
+            "TYPE":"cube",
+            "MATERIAL":"white_light",
+            "TRANS":[0.0,0.0,10.0],
+            "ROTAT":[30.0,0.0,0.0],
+            "SCALE":[8.0,15.0,0.1]
+        },
+        {
+            "TYPE":"cube",
+            "MATERIAL":"left_light",
+            "TRANS":[-8.0, 0.0, 0.0],
+            "ROTAT":[0.0, 0.0,-5.0],
+            "SCALE":[0.1,9,9]
+        }
+    ]
+}
