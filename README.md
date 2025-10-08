@@ -39,8 +39,9 @@ Beyond these features, I also added the following, which I will describe and ana
  * Material Sorting
  * Various ImGui features to toggle all of these above, display runtime information, and toggle channels for swapping between the scene, its albedo, its metal-roughness, its BVHs, its normals, or its depth. (ignore this graders lol, this was done after the PR)
 
-The scenes and gLTFs I used and a few more are in the scenes folder if you would like to recreate these on your own machine. I believe they should all work after setting up the project with Cmake and building it, but I only tested it on my personal laptop.
+The scenes, gLTFs, and environment maps I used and a few more are in the scenes folder if you would like to recreate these on your own machine. I believe they should all work after setting up the project with Cmake and building it, but I only tested it on my personal laptop.
 The images in this readme and more (including a [4k version of the image above](https://github.com/Ser-Avi/Project3-CUDA-Path-Tracer/blob/main/img/time4k.png), which took approx. 2 hours to render at 0.7fps) are found in the img folder.
+The sources for everything are at the bottom of this readme in the credits section.
 
 ## Methods
 
@@ -310,6 +311,23 @@ On a last note, these charts also reveal an interesting difference in intersecti
     </td>
   </tr>
 </table>
+
+## Credits
+
+Code:
+ - UPenn CIS 565 GPU Programming for the base framework.
+ - tinygLTF for help with gltf loading.
+ - stb_image for image saving and texture importing help.
+ - nlohmann for JSON parsing.
+ - jacco, as mentioned above, for their BVH implementation blog.
+
+Models:
+ - [Machine](https://sketchfab.com/3d-models/time-machine-a11c6d625e3f46dca26d6e4c4edf2a79)
+ - [Space Marine](https://sketchfab.com/3d-models/space-marine-18c4db9aeabe4d9e98ae76c80c1c2581)
+ - [Hand Monster](https://sketchfab.com/3d-models/hand-monster-4f709306703b4fb58db157dd8c3d8d55)
+ - [Astronaut](https://sketchfab.com/3d-models/spaceman-model-4494aa9be0c84b9dbef590a588b493cf)
+ - [PBR Spheres, Cesium Man, and Cesium Box are from the Khronos gLTF samples library](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models)
+ - [Stanford Dragon](http://graphics.stanford.edu/data/3Dscanrep/)
 
 ## Bloopers
 Congrats! You made it to the end of the readme! Sorry for all my rambles! As a reward, here are some funny bugs and bloopers from the strenuous and sleepless two weeks of making this path tracer.
