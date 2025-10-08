@@ -39,6 +39,9 @@ Beyond these features, I also added the following, which I will describe and ana
  * Material Sorting
  * Various ImGui features to toggle all of these above, display runtime information, and toggle channels for swapping between the scene, its albedo, its metal-roughness, its BVHs, its normals, or its depth. (ignore this graders lol, this was done after the PR)
 
+The scenes and gLTFs I used and a few more are in the scenes folder if you would like to recreate these on your own machine. I believe they should all work after setting up the project with Cmake and building it, but I only tested it on my personal laptop.
+The images in this readme and more (including a [4k version of the image above](https://github.com/Ser-Avi/Project3-CUDA-Path-Tracer/blob/main/img/time4k.png), which took approx. 2 hours to render at 0.7fps) are found in the img folder.
+
 ## Methods
 
 ### Material Evaluation
@@ -180,7 +183,7 @@ Since we loop over our paths multiple times (usually 8 for me), we want to get r
 <p align="center">
   <img width="80%" alt="image" src="img/matsMats.png" />
   <br>
-  <em>"Cornell Showcase" with the material channel, showing the differing materials on my code's side</em>
+  <em>"Cornell Showcase" with the material output option showing the differing materials on my code's side</em>
 </p>
 This was implemented as a potential performance speedup, the results of which are discussed below in the Analysis section. The way it is implemented is that since I already encode intersection material information as an ENUM, I simply use thrust::sort_by_key to sort my paths and intersections by treating the ENUMS as their integer value. Then, similarly to my grid sorting in my Boids project, I use a kernel to "unroll" this sorted array and get the start and end index of each material. I store these in a small array of size MaterialNumber, and then launch kernels for each material with a threadcount based on these results. I created a "None" material for terminated paths, which has the highest index, so it gets sorted to the end of my array. Thus, I can simply use the start index of this array to cut away these paths for my next loop, essentially giving me stream compaction for free.
 
@@ -222,28 +225,42 @@ Before jumping in, here are the scenes and their stats that I am using for analy
 
 | Name | Dimension | Triangles | SAH BVH Nodes | Naive BVH Nodes | Traced Depth |
 |:-----:|:---------:|----------:|--------------:|----------------:|-------------:|
-| Cornell Showcase (CS) | 800x800 | 1315991 | 2609273 | 1423557 | 8 |
-| Time (T) | 2000x1600 | 479113 | 948991 | 44707 | 12 |
-| PBR and Dielectric Showcase (PBR) | 800x800 | 501776 | 1001021 | 524093 | 8 |
-| Dragons (D) | 800x800 | 6970448 | 13772339 | 7277053 | 8 |
-| Dragons Box (DB) | 800x800 | 6970448 | 13772339 | 7277053 | 8 |
+| Cornell Showcase (CS) | 800x800 | 1,315,991 | 2,609,273 | 1,423,557 | 8 |
+| Time (T) | 2000x1600 | 479,113 | 948,991 | 44,707 | 12 |
+| PBR and Dielectric Showcase (PBR) | 800x800 | 501,776 | 1,001,021 | 524,093 | 8 |
+| Dragons (D) | 800x800 | 6,970,448 | 13,772,339 | 7,277,053 | 8 |
+| Dragons Box (DB) | 800x800 | 6,970,448 | 13,772,339 | 7,277,053 | 8 |
 
-First, lets take a look at the effect of stream compaction and material sorting. I didn't combine the two since, as I mentioned above, compaction is done for free in my material sorting method. I measured the following parts of a single path tracing iteration for each:
- - Setting up the information needed, where we do some memory calls at the beginning of path tracing to get all our variables in order.
- - Generate rays, where we shoot the rays from the camera. This should only be dependent on the resolution, but showing this exposes the error rate in my time measurements.
- - Sort materials, i.e. material sorting if turned on.
- - Render materials, which is the actual ray shading and computation part.
- - Stream compact, if it is turned on.
-I used a CUDA timer to measure each, so the timings themselves should be pretty accurate, but there is always variance between each frame and also each running of the scene due to my computer doing other processes in the background. Thus, I will focus more on general trends in the results rather than specific values.
-If I were to chart the full comparison, it would look like this:
+When plotting the timing of each step in the path tracer for one iteration, we get this graph:
 
 <p align="center">
-  <img width="80%" alt="image" src="img/chartFull.png" />
+  <img width="80%" alt="image" src="img/chartOverkill.png" />
   <br>
   <em>Comparison chart of everything</em>
 </p>
 
-As we can clearly see, material sorting takes up quite a bit of time, so much so, in fact, that we can't really make out any good data from this chart. However, what's interesting is that it even increases rendering time, which is what it's supposed to help with in the first place! This was quite odd to me, since there must be some reason why we would want to do this. To investigate, I set up two new scenarios based on my hypothesis that the reason for this slowdown was either that my extra start and end index checking was taking up too much time or that launching a higher number of kernels was taking up too much time. The first scenario is letting thrust do the only sorting, and I launch everything in one kernel afterwards, making the same material paths be grouped together in memory, but not doing any extra sorting. However, we lose my stream compaction here, so we keep re-checking worthless paths, which makes this incredibly slow. Thus, I next tested the same scenario with added stream compaction.
+This doesn't tell us much, since intersection computation takes up by far the most time, with material sorting and stream compaction coming in right after it. However, simply removing this section and charting it would be unfair, since it is precisely the intersection computation that stream compaction (and material sorting to some extent) targets. Thus, my comparisons will be as follows: first, we will compare the timing of ray generation, information setup, and rendering for each scene, showing how different materials and scene complexities affect each part; next, we will compare the effect of material sorting and stream compaction on intersection calculations; and lastly we will compare the time it takes to build a BVH using Naive vs SAH and their intersection times.\
+My method for getting this data was creating a CUDA timer that I start and stop before and after each section, and then checking the output. The timings themselves should be pretty accurate, but there is always variance between each frame and also each running of the scene due to my computer doing other processes in the background. Thus, I will focus more on general trends in the results rather than specific values.
+
+### General Comparison
+<p align="center">
+  <img width="80%" alt="image" src="img/chartGeneral.png" />
+  <br>
+  <em>Comparison chart of everything</em>
+</p>
+
+These outputs are pretty much what we'd expect. Setup takes about the same time for each one, and the higher resolution scene takes much more time to generate the rays, while the others are pretty much the same. However, I do find the rendering timings quite interesting. Even though we have more rays and bounces in the *Time* scene, it takes about the same time to render the paths, meaning it is actually faster. *PBR and Dielectric Showcase* is also seemingly significantly faster than the others. But how do these differ from the rest? What could explain this? Honestly, I don't know. I believe that the similarity is probably due to the kernel call being the big bottleneck, and the actual calculations within are relatively the same speed. However, closed scenes should, in theory, be slower than open ones, since we'd still have more rays to color in each bounce. This is supported by the *PBR and Dielectric Showcase* scene, which is very open with only a few spheres that would shoot rays into the void in 1-2 bounces. However, the two dragon scenes have pretty much the same runtime, which is quite baffling; thus, I think these differences are most probably within the error rate due to the general fluctuations in performance. However, we see that all of these are quite fast, even though there is a lot of branching, especially in the *Cornell  Showcase* scene, due to its high number of differing materials.
+
+When taking a look at the chart right below, we can start to see the general differences between the rendering times for each scene. The slowest by far is *Time*, which makes sense since it is larger, has three different complex gLTFs, has the most lights by far (10), and is mostly closed. *Cornell Showcase* comes right in between the two dragon scenes, which shows just how much of an effect a closed scene has, since *PBR* has many more triangles that are more complex, but render much faster. *PBR* is also only two materials with a lot of space in between each sphere, so paths can be terminated quite early. In fact, I doubt we ever even reach more than 3-4 bounces for any ray, since that would mean the spheres bounce a ray back and forth between them. The two dragon scenes also have a drastic difference in time, even though the only difference is 4 walls and a light source. From a naive standpoint, this should mean nothing compared to the nearly 7 million triangles, but we are not naive and know that these walls bounce rays between them and the light source creates a more complex scenario, slowing this down by nearly 5x. Thus, in general, due to the BVH optimizations that we'll see a bit later, the true predictor for rendering time is how many times we think rays will bounce and the complexity of the lighting.
+
+### Material Sorting and Stream Compaction
+<p align="center">
+  <img width="80%" alt="image" src="img/chartIntsect.png" />
+  <br>
+  <em>Comparison chart of intersection timings</em>
+</p>
+
+Stream compaction gives us the predictable result: it reduces intersection time at the cost of a fixed overhead, making it useful for larger scenes, but bad for smaller scenes where this overhead is more time than the time it saves. Material sorting, on the other hand, is an interesting one. In theory, this should also show some improvement, especially since we get stream compaction with it for free, but none of the scenes benefit from it. This was a bit odd to me, since there must be some reason why we would want to do this. To investigate, I set up two new scenarios based on my hypothesis that the reason for this slowdown was either that my extra start and end index checking was taking up too much time or that launching a higher number of kernels was. The first scenario is letting thrust do the only sorting, and I launch everything in one kernel afterwards, making the same material paths be grouped together in memory, but not doing any extra sorting. However, we lose my stream compaction here, so we keep re-checking worthless paths, which makes this incredibly slow. Thus, I next tested the same scenario with added stream compaction.
 
 <p align="center">
   <img width="80%" alt="image" src="img/chartMS.png" />
@@ -253,18 +270,100 @@ As we can clearly see, material sorting takes up quite a bit of time, so much so
 
 While stream compaction adds back some performance, I was relieved to find that my extra overhead method is still actually faster, and the real bottleneck was the original thrust::sort_by_key. Some comparisons with thrust algorithms can be seen in my previous project on stream compaction, but I trust that they have very optimized methods, so I believe that material sorting is simply not worth it unless, for some reason, you have many more materials than I have.
 
-Now, we have an important part missing from these charts, which is the timing of intersections.
+### BVH Comparisons
+<p align="center">
+  <img width="80%" alt="image" src="img/chartBVHIntsect.png" />
+  <br>
+  <em>Comparison chart for intersection time based on BVH algorithm</em>
+</p>
 
+I wanted the time axis to be linear here, but had to opt for logarithmic so the SAH columns wouldn't disappear completely. Needless to say, the SAH method is an incredible speedup. 16% in the worst case, 99.2% in the best - aka a 118x speedup. Using this is an absolute no-brainer. The cost? A more complex algorithm to implement (which is well documented online) and a longer build time. How much longer?
 
+<p align="center">
+  <img width="80%" alt="image" src="img/chartBVHBuild.png" />
+  <br>
+  <em>Comparison chart for BVH build times</em>
+</p>
 
+About 10x more build time in the worst case and 4.5x in the best. However, we only need to do this once (unless we're doing an animated scene, for which there would ideally be extra optimizations), so again, using this is a must. Nvidia also showed off their new BVH algorithm at SIGGRAPH this past summer to support "Mega-Geometry" in real time, which is very exciting and something I would love to explore in the future.
 
+On a last note, these charts also reveal an interesting difference in intersection time that isn't fully dependent on the number of BVH nodes or triangles. As I alluded to a few times before, the sparseness of the objects also correlates with intersection time. *Dragons Box* has about 14x more BVH nodes than *Time*, but renders over 2x as fast. Some of this is due to the number of lights in *Time* increasing the complexity of the scene, but it is generally more open than *Dragons Box*. However, the key difference is the distribution of triangles. While the Stanford dragon itself is quite complex, having 8 of them means that they are way more spread out than the models in *Time*, which are overlapping quite a bit. This means that we can filter out a lot of the triangles very early on in *Dragons Box*, while we still need to consider a lot in *Time*, since while we try to have bounding boxes be discrete, they can still easily have some overlap, since the binning part sorts them based on centroid position, not max edge distance. I believe the depth traversal-based algorithm would have helped even this out, but again, I couldn't implement it in time, so I can't do the thorough comparison. We can see this discrete difference in the BVH visualization of these scenes, and in *PBR and Dielectric Showcase* which has a similar situation.
 
+<table align="center">
+  <tr>
+    <td align="center">
+      <img src="img/dragonssBVH.png"  width = "100%"/>
+      <br>
+      <em>Dragons scene BVH visualization</em>
+    </td>
+    <td align="center">
+      <img src="img/pbrgltfBVH.png"  width = "110%"/>
+      <br>
+      <em>PBR and Dielectric Showcase BVH visualization</em>
+    </td>
+    <td align="center">
+      <img src="img/timeBVH.png"  width = "110%"/>
+      <br>
+      <em>Time BVH visualization</em>
+    </td>
+  </tr>
+</table>
 
+## Bloopers
+Congrats! You made it to the end of the readme! Sorry for all my rambles! As a reward, here are some funny bugs and bloopers from the strenuous and sleepless two weeks of making this path tracer.
 
+<p align="center">
+  <img width="80%" alt="image" src="img/cesiumSpace.png" />
+  <br>
+  <em>Cesium Man in Space!! (or just in front of a noise diffuse surface)</em>
+</p>
 
+<p align="center">
+  <img width="80%" alt="image" src="img/cornell-fullSpec.png" />
+  <br>
+  <em>I started with going full specular for everything in the Cornell box...</em>
+</p>
 
+<p align="center">
+  <img width="80%" alt="image" src="img/cornell-bug.png" />
+  <br>
+  <em>Not even sure what I did wrong here</em>
+</p>
 
+<table align="center">
+  <tr>
+    <td align="center">
+      <img src="img/cornell-specLens.png"  width = "100%"/>
+      <br>
+      <em>Cool looking lens from dielectric testing</em>
+    </td>
+    <td align="center">
+      <img src="img/cornell-blackRim.png"  width = "110%"/>
+      <br>
+      <em>Another classic dielectric bug</em>
+    </td>
+    <td align="center">
+      <img src="img/ballHat.png"  width = "110%"/>
+      <br>
+      <em>Somehow my ball got a lil' cap (ignore the gLTF box test)</em>
+    </td>
+  </tr>
+</table>
 
+<p align="center">
+  <img width="80%" alt="image" src="img/BVH-bug.png" />
+  <br>
+  <em>BVH machine broke</em>
+</p>
 
+<p align="center">
+  <img width="80%" alt="image" src="img/DistBasedDragonBug.gif" />
+  <br>
+  <em>BVH machine REALLY broke - aka why my distance-based algorithm doesn't work and the inspo for BVH visualizing</em>
+</p>
 
-
+<p align="center">
+  <img width="80%" alt="image" src="img/dragonNorBug.png" />
+  <br>
+  <em>My first good gLTF import...except the light was above it, not in front</em>
+</p>
