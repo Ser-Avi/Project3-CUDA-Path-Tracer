@@ -146,7 +146,7 @@ Environment maps can be swapped during runtime from an ImGui dropdown menu that 
 
 ### Bounding Volume Hierarchy (BVH)
 <p align="center">
-  <img width="50%" alt="image" src="img/dragonssBVH.gif" />
+  <img width="50%" alt="image" src="img/dragonssBVH.png" />
   <br>
   <em>"Dragons" bounding volumes</em>
 </p>
