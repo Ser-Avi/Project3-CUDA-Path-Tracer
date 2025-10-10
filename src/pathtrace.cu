@@ -509,7 +509,9 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
             std::cerr << "CUDA Kernel Error2: " << cudaGetErrorString(err) << std::endl;
             exit(1);
         }
-        float col = glm::clamp((float)glm::log2(hst_scene->numBVHnodes) / 1200.f, 0.005f, 0.2f);
+        // for coloring BVHs
+        // These numbers might seem arbitrary, but trust
+        float col = glm::clamp((float)glm::log2(hst_scene->numBVHnodes) / 2000.f, 0.0005f, 0.2f);
         switch (drawMode)
         {
         case STANDARD:

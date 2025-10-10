@@ -441,6 +441,7 @@ void RenderImGui()
             ImGui::Combo("##DM", &drawInt, drawNames, IM_ARRAYSIZE(drawNames));
             if (drawInt != drawMode)
             {
+                camchanged = true;
                 drawMode = static_cast<DrawMode>(drawInt);
             }
             ImGui::EndTabItem();
