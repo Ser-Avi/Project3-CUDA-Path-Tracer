@@ -445,7 +445,7 @@ void RenderImGui()
             }
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Camera and Rays"))
+        if (ImGui::BeginTabItem("Cam and Rays"))
         {
             ImGui::Checkbox("Toggle Stochastic Sampling", &isStochastic);
             // Depth of Camera
@@ -465,7 +465,7 @@ void RenderImGui()
             ImGui::Checkbox("Toggle Material Sorting", &isMatSort);
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Camera Info"))
+        if (ImGui::BeginTabItem("Cam Info"))
         {
             Camera cam = renderState->camera;
             ImGui::Text("Eye: %f, %f, %f", cam.position.x, cam.position.y, cam.position.z);

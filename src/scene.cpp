@@ -38,6 +38,10 @@ Scene::Scene(string filename)
 void Scene::loadFromJSON(const std::string& jsonName)
 {
     std::ifstream f(jsonName);
+    if (!f.is_open()) {
+        std::cerr << "ERROR: Could not open file " << jsonName << std::endl;
+        exit(-1);
+    }
     json data = json::parse(f);
     const auto& materialsData = data["Materials"];
     std::unordered_map<std::string, uint32_t> MatNameToID;
