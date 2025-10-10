@@ -402,8 +402,9 @@ __global__ void finalGather(int nPaths, glm::vec3* image, PathSegment* iteration
  * Wrapper for the __global__ call that sets up the kernel calls and does a ton
  * of memory management
  */
-void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort, bool isStochastic, bool isBVHvis)
+void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort, bool isStochastic, DrawMode drawMode)
 {
+    timer().startCpuTimer();
     //std::cout << "PT start" << std::endl;
     const int traceDepth = hst_scene->state.traceDepth;
     const Camera& cam = hst_scene->state.camera;
@@ -417,7 +418,7 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
     int* dev_triIndices = hst_scene->gltfManager.getTriIntDevice();
     BVHNode* dev_bvh = hst_scene->gltfManager.getBVHDevice();
     int triangle_num = hst_scene->gltfManager.getNumTriangles();
-    //std::cout << triangle_num << std::endl;
+    //std::cout << "Triangle num in pathtrace: " << triangle_num << std::endl;
     checkCUDAError("setup");
     cudaError_t err = cudaDeviceSynchronize();
     if (err != cudaSuccess) {
@@ -468,11 +469,15 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
     //     since some shaders you write may also cause a path to terminate.
     // * Finally, add this iteration's results to the image. This has been done
     //   for you.
-
+    timer().endCpuTimer();
+    printf("Pathtrace Setup time: %f\n", timer().getCpuElapsedTimeForPreviousOperation());
     // TODO: perform one iteration of path tracing
+    timer().startCpuTimer();
     generateRayFromCamera<<<blocksPerGrid2d, blockSize2d>>>(cam, iter, traceDepth, dev_paths, isStochastic);
     cudaDeviceSynchronize();
     checkCUDAError("generate camera ray");
+    timer().endCpuTimer();
+    printf("Generate Ray from Cam time: %f\n", timer().getCpuElapsedTimeForPreviousOperation());
 
     int depth = 0;
     PathSegment* dev_path_end = dev_paths + pixelcount;
@@ -484,7 +489,11 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
 
     // --- PathSegment Tracing Stage ---
     // Shoot ray into scene, bounce between objects, push shading chunks
-
+    float fullRenderTime = 0.f;
+    float fullSortTime = 0.f;
+    float fullOnlyRenderTime = 0.f;
+    float fullIntsectTime = 0.f;
+    float fullCompactTime = 0.f;
     bool iterationComplete = false;
     while (!iterationComplete)
     {
@@ -500,9 +509,11 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
             std::cerr << "CUDA Kernel Error2: " << cudaGetErrorString(err) << std::endl;
             exit(1);
         }
-
-        if (!isBVHvis)
+        float col = glm::clamp((float)glm::log2(hst_scene->numBVHnodes) / 1200.f, 0.005f, 0.2f);
+        switch (drawMode)
         {
+        case STANDARD:
+            timer().startCpuTimer();
             computeIntersections << <numblocksPathSegmentTracing, blockSize1d >> > (
                 depth,
                 num_paths,
@@ -521,9 +532,15 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
                 std::cerr << "CUDA Kernel Error: " << cudaGetErrorString(err) << std::endl;
             }
 
+            timer().endCpuTimer();
+            printf("Compute Intersections time: %f\n", timer().getCpuElapsedTimeForPreviousOperation());
+            fullRenderTime += timer().getCpuElapsedTimeForPreviousOperation();
+            fullIntsectTime += timer().getCpuElapsedTimeForPreviousOperation();
             if (isMatSort)
             {
                 //std::cout << "Depth: " << depth << std::endl;
+                timer().startCpuTimer();
+
                 thrust::sort_by_key(thrust::device, dev_intersections, dev_intersections + num_paths, dev_paths, CompareByKey());
                 Utils::kernResetIntBuffer << <numblocksPathSegmentTracing, blockSize1d >> > (MATERIAL_NUM, dev_materialStartIndices, -1);
                 Utils::kernResetIntBuffer << <numblocksPathSegmentTracing, blockSize1d >> > (MATERIAL_NUM, dev_materialEndIndices, -1);
@@ -534,6 +551,13 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
                 // we can cull NONE materials here by simply setting num_paths to their start index (since they come last)
                 // however this trick only works if there are NONE materials, hence the conditional
                 num_paths = hst_materialStartIndices[0] > 0 ? hst_materialStartIndices[0] : num_paths;
+
+                timer().endCpuTimer();
+                printf("Material sorting time: %f\n", timer().getCpuElapsedTimeForPreviousOperation());
+                fullRenderTime += timer().getCpuElapsedTimeForPreviousOperation();
+                fullSortTime += timer().getCpuElapsedTimeForPreviousOperation();
+
+                timer().startCpuTimer();
 
                 for (int mat = 0; mat < MATERIAL_NUM; ++mat)
                 {
@@ -596,9 +620,14 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
                         break;
                     }
                 }
+                timer().endCpuTimer();
+                printf("Sorted Mat rendering time: %f\n", timer().getCpuElapsedTimeForPreviousOperation());
+                fullRenderTime += timer().getCpuElapsedTimeForPreviousOperation();
+                fullOnlyRenderTime += timer().getCpuElapsedTimeForPreviousOperation();
             }
             else
             {
+                timer().startCpuTimer();
                 PBR::kernShadeAll << <numblocksPathSegmentTracing, blockSize1d >> > (
                     iter,
                     num_paths,
@@ -606,19 +635,26 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
                     dev_paths,
                     dev_materials, dev_PBRmaterials, envMap
                     );
+                timer().endCpuTimer();
+                printf("Unsorted Mat rendering time: %f\n", timer().getCpuElapsedTimeForPreviousOperation());
+                fullRenderTime += timer().getCpuElapsedTimeForPreviousOperation();
+                fullOnlyRenderTime += timer().getCpuElapsedTimeForPreviousOperation();
             }
 
             if (isCompact)
             {
+                timer().startCpuTimer();
                 PathSegment* mid = thrust::partition(thrust::device, dev_paths, dev_paths + num_paths, is_continue());
                 num_paths = static_cast<int>(mid - dev_paths);
+                timer().endCpuTimer();
+                printf("Partition Time: %f\n", timer().getCpuElapsedTimeForPreviousOperation());
+                fullRenderTime += timer().getCpuElapsedTimeForPreviousOperation();
+                fullCompactTime += timer().getCpuElapsedTimeForPreviousOperation();
             }
 
             if (++depth > traceDepth - 1 || num_paths < 1) iterationComplete = true;
-        }
-        else
-        {
-            float col = glm::clamp((float) glm::sqrt(hst_scene->numBVHnodes) / 1000000.f, 0.005f, 0.2f);
+            break;
+        case BVH_VIS:
             kernDrawBVH << <numblocksPathSegmentTracing, blockSize1d >> > (
                 depth,
                 num_paths,
@@ -627,14 +663,46 @@ void pathtrace(uchar4* pbo, int frame, int iter, bool isCompact, bool isMatSort,
                 dev_bvh,
                 col);
             iterationComplete = true;
+            break;
+        default:
+            computeIntersections << <numblocksPathSegmentTracing, blockSize1d >> > (
+                depth,
+                num_paths,
+                dev_paths,
+                dev_geoms,
+                hst_scene->geoms.size(),
+                dev_intersections,
+                dev_triangles,
+                triangle_num,
+                dev_triIndices,
+                dev_bvh
+                );
+            checkCUDAError("trace one bounce");
+            err = cudaDeviceSynchronize();
+            if (err != cudaSuccess) {
+                std::cerr << "CUDA Kernel Error: " << cudaGetErrorString(err) << std::endl;
+            }
+            PBR::kernShadeSpecific << <numblocksPathSegmentTracing, blockSize1d >> > (
+                num_paths,
+                dev_intersections,
+                dev_paths,
+                dev_materials, dev_PBRmaterials, drawMode
+                );
+            iterationComplete = true;
+            break;
         }
-
 
         if (guiData != NULL)
         {
             guiData->TracedDepth = depth;
         }
     }
+    printf("\n################################\n");
+    printf("FULL sort time: %f\n", fullSortTime);
+    printf("FULL only render time: %f\n", fullOnlyRenderTime);
+    printf("FULL intsect time: %f\n", fullIntsectTime);
+    printf("FULL compact time: %f\n", fullCompactTime);
+    printf("FULL render time: %f\n\n", fullRenderTime);
     // Assemble this iteration and apply it to the image
     dim3 numBlocksPixels = (pixelcount + blockSize1d - 1) / blockSize1d;
     finalGather<<<numBlocksPixels, blockSize1d>>>(pixelcount, dev_image, dev_paths);

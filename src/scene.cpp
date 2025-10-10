@@ -204,7 +204,10 @@ void Scene::loadFromGLTF()
     gltfManager.nodes_used = 1;
     int nimBVHinit = gltfManager.getBVHHost()->size();
     gltfManager.getTriIntHost()->resize(numTriangles);
+    timer().startCpuTimer();
     BVH::BuildBVH(numTriangles, *gltfManager.getTriIntHost(), *gltfManager.getTrianglesHost(), *gltfManager.getBVHHost(), gltfManager.nodes_used);
+    timer().endCpuTimer();
+    printf("BVH BUILD TIME: %f\n", timer().getCpuElapsedTimeForPreviousOperation());
 
     numBVHnodes = gltfManager.nodes_used;
 

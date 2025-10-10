@@ -1,7 +1,7 @@
 #include "GLTFManager.h"
 
-#define BalancedBVH false
-#define BuildFastBVH false
+#define BalancedBVH true
+#define BuildFastBVH true
 
 TextureLoader::TextureLoader() = default;
 

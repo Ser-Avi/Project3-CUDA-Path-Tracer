@@ -66,14 +66,17 @@ void mousePositionCallback(GLFWwindow* window, double xpos, double ypos);
 void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
 
 // Extra imgui vars
-bool isCompact = false;
-bool isMatSort = true;
+bool isCompact = true;
+bool isMatSort = false;
 bool isStochastic = true;
-bool isBVHvis = false;
 std::string envmapPath = "";
 std::string selectedPath = "";
 const char* mapNames[] = { "None", "Bridge", "Bonifacio Street", "Fireplace",
                             "Light Interior", "Preller Drive", "Kloppenheim", "Kiara Dawn", "Photostudio"};
+
+const char* drawNames[] = { "Standard", "BVH", "Albedo", "Normals", "MetalRough", "Depth", "Materials"};
+int drawInt = 0;
+DrawMode drawMode = STANDARD;
 int mapIdx = 0;
 float imguiFocal = 10.f;
 float imguiLens = 0.f;
@@ -274,8 +277,9 @@ glm::vec3 reinhardOp(glm::vec3 color) {
 
 glm::vec3 convertOutCols(glm::vec3 color)
 {
-    color = reinhardOp(color);
-    return glm::vec3(toSRGB(color.x), toSRGB(color.y), toSRGB(color.z));
+    //color = reinhardOp(color);
+    //return glm::vec3(toSRGB(color.x), toSRGB(color.y), toSRGB(color.z));
+    return color;
 }
 
 void saveImage()
@@ -344,10 +348,6 @@ void RenderImGui()
     {
         if (ImGui::BeginTabItem("Visuals"))
         {
-            if (scene->numBVHnodes != 0)
-            {
-                ImGui::Checkbox("Toggle BVH Visualizing", &isBVHvis);
-            }
             // Environment Map selection
             ImGui::Text("Environment Maps");
             ImGui::Combo(" ", &mapIdx, mapNames, IM_ARRAYSIZE(mapNames));
@@ -435,6 +435,14 @@ void RenderImGui()
                 }
                 break;
             }
+
+            // render mode selection
+            ImGui::Text("Select Draw Mode");
+            ImGui::Combo("##DM", &drawInt, drawNames, IM_ARRAYSIZE(drawNames));
+            if (drawInt != drawMode)
+            {
+                drawMode = static_cast<DrawMode>(drawInt);
+            }
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Camera and Rays"))
@@ -455,6 +463,15 @@ void RenderImGui()
         {
             ImGui::Checkbox("Toggle Stream Compaction", &isCompact);
             ImGui::Checkbox("Toggle Material Sorting", &isMatSort);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Camera Info"))
+        {
+            Camera cam = renderState->camera;
+            ImGui::Text("Eye: %f, %f, %f", cam.position.x, cam.position.y, cam.position.z);
+            ImGui::Text("Look at: %f, %f, %f", cam.lookAt.x, cam.lookAt.y, cam.lookAt.z);
+            ImGui::Text("Up: %f, %f, %f", cam.up.x, cam.up.y, cam.up.z);
+
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
@@ -614,7 +631,7 @@ void runCuda()
 
         // execute the kernel
         int frame = 0;
-        pathtrace(pbo_dptr, frame, iteration, isCompact, isMatSort, isStochastic, isBVHvis);
+        pathtrace(pbo_dptr, frame, iteration, isCompact, isMatSort, isStochastic, drawMode);
 
         // unmap buffer object
         cudaGLUnmapBufferObject(pbo);
