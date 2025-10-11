@@ -68,6 +68,7 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
 // Extra imgui vars
 bool isCompact = true;
 bool isMatSort = false;
+bool isTimed = false;
 bool isStochastic = true;
 std::string envmapPath = "";
 std::string selectedPath = "";
@@ -464,6 +465,7 @@ void RenderImGui()
         {
             ImGui::Checkbox("Toggle Stream Compaction", &isCompact);
             ImGui::Checkbox("Toggle Material Sorting", &isMatSort);
+            ImGui::Checkbox("Toggle Render Timings", &isTimed);
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Cam Info"))
@@ -632,7 +634,7 @@ void runCuda()
 
         // execute the kernel
         int frame = 0;
-        pathtrace(pbo_dptr, frame, iteration, isCompact, isMatSort, isStochastic, drawMode);
+        pathtrace(pbo_dptr, frame, iteration, isCompact, isMatSort, isStochastic, drawMode, isTimed);
 
         // unmap buffer object
         cudaGLUnmapBufferObject(pbo);

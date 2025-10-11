@@ -50,7 +50,7 @@ void Scene::loadFromJSON(const std::string& jsonName)
         const auto& name = item.key();
         const auto& p = item.value();
         Material newMaterial{};
-        // TODO: handle materials loading differently
+        // material loading
         if (p["TYPE"] == "Diffuse")
         {
             const auto& col = p["RGB"];
