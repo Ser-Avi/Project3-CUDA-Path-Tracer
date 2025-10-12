@@ -8,6 +8,8 @@
 
 &nbsp;\* Tested on: Windows 11, i7-13620H @ 2.4GHz 32GB, RTX 4070 8GB (Laptop)
 
+&nbsp;\* [Video Showcase](https://vimeo.com/manage/videos/1126497044)
+
 ## Overview
 
 <p align="center">
