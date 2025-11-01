@@ -38,6 +38,10 @@ Scene::Scene(string filename)
 void Scene::loadFromJSON(const std::string& jsonName)
 {
     std::ifstream f(jsonName);
+    if (!f.is_open()) {
+        std::cerr << "ERROR: Could not open file " << jsonName << std::endl;
+        exit(-1);
+    }
     json data = json::parse(f);
     const auto& materialsData = data["Materials"];
     std::unordered_map<std::string, uint32_t> MatNameToID;
@@ -46,7 +50,7 @@ void Scene::loadFromJSON(const std::string& jsonName)
         const auto& name = item.key();
         const auto& p = item.value();
         Material newMaterial{};
-        // TODO: handle materials loading differently
+        // material loading
         if (p["TYPE"] == "Diffuse")
         {
             const auto& col = p["RGB"];
@@ -204,7 +208,10 @@ void Scene::loadFromGLTF()
     gltfManager.nodes_used = 1;
     int nimBVHinit = gltfManager.getBVHHost()->size();
     gltfManager.getTriIntHost()->resize(numTriangles);
+    timer().startCpuTimer();
     BVH::BuildBVH(numTriangles, *gltfManager.getTriIntHost(), *gltfManager.getTrianglesHost(), *gltfManager.getBVHHost(), gltfManager.nodes_used);
+    timer().endCpuTimer();
+    printf("BVH BUILD TIME: %f\n", timer().getCpuElapsedTimeForPreviousOperation());
 
     numBVHnodes = gltfManager.nodes_used;
 

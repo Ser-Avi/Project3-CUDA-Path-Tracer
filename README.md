@@ -8,6 +8,8 @@
 
 &nbsp;\* Tested on: Windows 11, i7-13620H @ 2.4GHz 32GB, RTX 4070 8GB (Laptop)
 
+&nbsp;\* [Video Showcase](https://vimeo.com/manage/videos/1126497044)
+
 ## Overview
 
 <p align="center">
@@ -51,14 +53,19 @@ The sources for everything are at the bottom of this readme in the credits secti
   <br>
   <em>"Cornell Showcase" showing off supported materials. Rendered at 800x800 with 5000 iterations and a bounce depth of 8.</em>
 </p>
+
 This one is based on my earlier path tracer in OpenGL, and uses much of the same code ported over to CUDA, so I will be focusing on their implementation over the theory.
 In order to easily support the sorted and unsorted versions, each material has a kernel, but the kernels all just call their respective inline functions, so the one big unsorted kernel can share that too.
 These kernels and their inline functions can be found in utils.cuh and utils.cu.
 
-**Diffuse** uses cosine weighted hemisphere sampling to give us a random bounce direction and easy calculations.\
-**Specular** simply gives us perfect refraction along the intersection's surface normal and doesn't add material color to the path.\
-**Transmissive** took a while to fully port here, which turned out to be mainly the fault of a given sphere intersection code that I had to then modify, but relies on Snell's Law by using glm::refract. One of the indices of reflection is presumed to be air aka 1.0, and the other needs to be encoded in the material. This means I don't support transmission between two non-air materials. I made this choice because this would only be a small fraction of all cases and would need some extra information to be stored for each ray, slowing down everything else.\
-**Dielectric** combines specular and transmissive materials. I decide which material to use via a random number generator and a probability of chosing specular over transmissive which is encoded in the material information. I then attenuate the results by 2 to account for this, and a Fresnel Dielectric Evaluation helper function.\
+**Diffuse** uses cosine weighted hemisphere sampling to give us a random bounce direction and easy calculations.
+
+**Specular** simply gives us perfect refraction along the intersection's surface normal and doesn't add material color to the path.
+
+**Transmissive** took a while to fully port here, which turned out to be mainly the fault of a given sphere intersection code that I had to then modify, but relies on Snell's Law by using glm::refract. One of the indices of reflection is presumed to be air aka 1.0, and the other needs to be encoded in the material. This means I don't support transmission between two non-air materials. I made this choice because this would only be a small fraction of all cases and would need some extra information to be stored for each ray, slowing down everything else.
+
+**Dielectric** combines specular and transmissive materials. I decide which material to use via a random number generator and a probability of chosing specular over transmissive which is encoded in the material information. I then attenuate the results by 2 to account for this, and a Fresnel Dielectric Evaluation helper function.
+
 **PBR** materials use a GGX/Trowbridge-Reitz Microfacet model. This alone took up multiple times the work as the others combined, as simply "porting it over to CUDA" as I mentioned above didn't work... After getting all the encoded material information and checking for material maps, I first determine the incoming ray direction (wi) by using a similar probability-based split between purely diffuse materials (which I handle with a simple hemisphere check) and the rest, which I handle with GGX importance sampling. Next, I calculate the BRDF with a helper function that uses a Trowbridge-Reitz function to calculate the Distribution term, a Schlick approximation for the F term, and the Smith approximation for the Geometry term for the specular component. The diffuse component is quite standard and incorporates the metallic factor, and I simply lerp them together using the F term (which becomes kS). For the PDF, I use the same Trowbridge-Reitz function for the D term to calculate the specular component, and I use the Fresnel Schlick approximation to come up with a specular probability value that I use to simply lerp between this specular and a diffuse component, similarly to the BRDF. Importantly, I found that the roughness needs to be clamped between 0.05 and 1 or 0.95, depending on the situation, to avoid some floating-point errors and weird outputs. However, as can be seen in the image below, the final result doesn't suffer from this clamping.
 
 <p align="center">
@@ -85,7 +92,15 @@ This method is quite short and easy to implement and offers great results and ba
 </table>
 
 ### Object and Texture Importing
-The JSON parsing relies on the nlohmann JSON library to easily access the information, and then this is parsed in the Scene class's loadFromJSON function. Each material needs to have some specific basic tags, and all of my JSON scenes can be viewed in the scenes folder. For a good example of multiple different materials and objects, I would recommend looking at "cornellShowcase.json," which is the scene shown at the top of the material evaluation section. Most of this functionality was given in the base code for this project, and I only added the specific materials and their parameters, and the GLTF array field. This array holds a string for a gLTF file path to read from and a rotation, translation, and scale vector to properly fit these into a scene. In the loadFromJSON function, these are simply all loaded in, and then later I call the loadFromGLTF function. This latter function uses two different classes, which are both in GLTFManager.h and GLTFManager.cu, called GLTFLoader and GLTFManager. The first one is really for calling the tinygLTF library and getting all the content in a nice format for me to read. It stores temporary things so I can delete all of them by the time I actually pathtrace. The GLTFManager, on the other hand, does the more in-depth processes of creating proper triangles, creating the material array that these triangles will reference, and managing my BVH nodes (more on those later). It also handles copying everything to the device from the host and clearing all that at the end of the process. Since I support multiple gLTFs, this is done sequentially, one by one, to make sure nothing gets tangled up, and then everything gets copied to the device. Textures are also read in at this point with a TextureLoader class, which is separate because it also handles environment map loading, and they use the cudaTextureObject_t class for copying them to the device and easy access from there. The output of each of these texture channels (for the Time scene) can be seen here:
+The JSON parsing relies on the nlohmann JSON library to easily access the information, and then this is parsed in the Scene class's loadFromJSON function. Each material needs to have some specific basic tags, and all of my JSON scenes can be viewed in the scenes folder. For a good example of multiple different materials and objects, I would recommend looking at "cornellShowcase.json," which is the scene shown at the top of the material evaluation section.
+
+Most of this functionality was given in the base code for this project, and I only added the specific materials and their parameters, and the GLTF array field. This array holds a string for a gLTF file path to read from and a rotation, translation, and scale vector to properly fit these into a scene. In the loadFromJSON function, these are simply all loaded in, and then later I call the loadFromGLTF function. This latter function uses two different classes, which are both in GLTFManager.h and GLTFManager.cu, called GLTFLoader and GLTFManager.
+
+GLTFLoader is mainly for calling the tinygLTF library and getting all the content in a nice format for me to read. It stores temporary things so I can delete all of them by the time I actually pathtrace. This allows for less memory use at runtime and better encapsulation at the cost of not being able to switch scenes at runtime, but that's not something I wanted to support.
+
+GLTFManager, on the other hand, does the more in-depth processes of creating proper triangles, creating the material array that these triangles will reference, and managing my BVH nodes (more on those later) by calling functions from the BVH class that's also in this file. It also handles copying everything to the device from the host and clearing all that at the end of the process. Since I support multiple gLTFs, this is done sequentially, one by one, to make sure nothing gets tangled up, then I create the BVHs from every triangle, before everything gets copied to the device.
+
+Textures are also read in at this point with a TextureLoader class, which is separate because it also handles environment map loading. Both these functionalities use the cudaTextureObject_t class for copying textures to the device and easy access from there. The output of each of these texture channels (for the Time scene) can be seen here:
 <table align="center">
   <tr>
     <td align="center">
@@ -113,7 +128,7 @@ And for reference, here is the Metal Rough mask of the "PBR and Dielectric Showc
 </p>
 
 ### Depth of Field
-My implementation of Depth of Field follows the physically based depth of field [PBRT book article](https://pbr-book.org/4ed/Cameras_and_Film/Projective_Camera_Models#TheThinLensModelandDepthofField) on it very closely. I simply added a focus distance and a lens radius variable to my camera, which can be set at runtime in the ImGui window, and instead of using a pinhole camera source, I jitter my ray origin to be on the lens. The performance overhead of this is negligible, as it is only a few extra calculations, but we get some very nice-looking results:
+My implementation of Depth of Field follows the physically based depth of field [PBRT book article](https://pbr-book.org/ed/Cameras_and_Film/Projective_Camera_Models#TheThinLensModelandDepthofField) on it very closely. I simply added a focus distance and a lens radius variable to my camera, which can be set at runtime in the ImGui window, and instead of using a pinhole camera source, I jitter my ray origin to be on the lens. The performance overhead of this is negligible, as it is only a few extra calculations, but we get some very nice-looking results:
 <table align="center">
   <tr>
     <td align="center">
@@ -155,9 +170,11 @@ Environment maps can be swapped during runtime from an ImGui dropdown menu that 
   <em>"Dragons" bounding volumes</em>
 </p>
 
-As most graphics people can tell, the GIF above has 4 Stanford Dragons in it, yet the scene still runs at about 20-30fps depending on the viewing angle. I'm tooting my own horn here, but that's pretty dang good for close to 7 million triangles! This is accomplished by bounding volumes in the shape of squares. Basically, we create a hierarchical bounding volume structure that encompasses the triangles in the scene. Each box, because I'm using boxes for the volumes, has two children, and only leaf BVH nodes contain actual triangles. Thus, when computing ray intersections, instead of checking against each triangle, we simply traverse down the BVH tree until we hit a leaf node, and then we only need to check the triangles within. Box intersections are very easy to compute, as each node stores a maximum and a minimum corner value, so we only need to check against a few planes. On the CPU, this intersection check would be recursive, but I employ a stack-based method as described in [this YouTube video](https://www.youtube.com/watch?v=C1H4zIiCOaI&start=553).
+As most graphics people can tell, the GIF above has 8 Stanford Dragons in it, yet the scene still runs at about 20-30fps depending on the viewing angle. I'm tooting my own horn here, but that's pretty dang good for close to 7 million triangles! This is accomplished by bounding volumes in the shape of squares. Basically, we create a hierarchical bounding volume structure that encompasses the triangles in the scene. Each box, because I'm using boxes for the volumes, has two children, and only leaf BVH nodes contain actual triangles. Thus, when computing ray intersections, instead of checking against each triangle, we simply traverse down the BVH tree until we hit a leaf node, and then we only need to check the triangles within. Box intersections are very easy to compute, as each node stores a maximum and a minimum corner value, so we only need to check against a few planes. On the CPU, this intersection check would be recursive, but I employ a stack-based method as described in [this YouTube video](https://www.youtube.com/watch?v=C1H4zIiCOaI&start=553).
 
-How does one construct a BVH? I used a [blog by "Jacco"](https://jacco.ompf2.com/2022/04/13/how-to-build-a-bvh-part-1-basics/) for this part of the code, but the basic naive implementation simply splits each bounding box along the largest axis to get each child. It subdivides recursively and terminates when there are two or fewer triangles in the box. This is a good starting point, but it does not get us ~25fps for 7million triangles, so I implemented some later parts of the blog to speed things up. First, the BVH nodes themselves become smaller, only storing the necessary information of their min and max values, the triangle count of this node, and a final value which is either the index of their left child node in the BVH array (knowing that the right is that +1) if the triangle count is 0 (i.e. if this is not a leaf node), or the index of the first child triangle if this is a leaf node. This optimization means that we need to sort the triangles, but that's easily done and allows these nodes to be only 32 bytes, allowing for a pair of sibling nodes to sit cozily on one 64-byte cache line. The speedup is worth it. Next, we move on from the naive subdivision to instead divide more evenly based on the probability of hitting a triangle in the box. We get this probability by checking the area of the triangles, since a larger area is the best predictor. However, this comes with a lot more calculations at build time (O(n^2) construction) to the point where my larger scenes like *Time* or *Dragons* never even built - or maybe they would eventually, but I got impatient. Thus, instead of checking every triangle when subdividing, we bin them (I stuck with 8 bins) using evenly spaced dividing lines, and then only checking within these bins. I believe this means that we won't get the fully optimal subdivisions, but instead of waiting forever, I now only need to wait a few seconds to construct these BVHs.For a quick comparison of what a Naive vs a Surface Area Heuristic (SAH) based assembly looks like, here is an image of each using the Stanford Dragon model. Can you tell which is which before looking at their description?
+How does one construct a BVH? I used a [blog by "Jacco"](https://jacco.ompf2.com/2022/04/13/how-to-build-a-bvh-part-1-basics/) for this part of the code, but the basic naive implementation simply splits each bounding box along the largest axis to get each child. It subdivides recursively and terminates when there are two or fewer triangles in the box. This is a good starting point, but it does not get us ~25fps for 7million triangles, so I implemented some later parts of the blog to speed things up. First, the BVH nodes themselves become smaller, only storing the necessary information of their min and max values, the triangle count of this node, and a final value which is either the index of their left child node in the BVH array (knowing that the right is that +1) if the triangle count is 0 (i.e. if this is not a leaf node), or the index of the first child triangle if this is a leaf node. This optimization means that we need to sort the triangles, but that's easily done and allows these nodes to be only 32 bytes, allowing for a pair of sibling nodes to sit cozily on one 64-byte cache line. The speedup is worth it.
+
+Next, we move on from the naive subdivision to instead divide more evenly based on the probability of hitting a triangle in the box. We get this probability by checking the area of the triangles, since a larger area is the best predictor. However, this comes with a lot more calculations at build time (O(n^2) construction) to the point where my larger scenes like *Time* or *Dragons* never even built - or maybe they would eventually, but I got impatient. Thus, instead of checking every triangle when subdividing, we bin them (I stuck with 8 bins) using evenly spaced dividing lines, and then only checking within these bins. I believe this means that we won't get the fully optimal subdivisions, but instead of waiting forever, I now only need to wait a few seconds to construct these BVHs.For a quick comparison of what a Naive vs a Surface Area Heuristic (SAH) based assembly looks like, here is an image of each using the Stanford Dragon model. Can you tell which is which before looking at their description?
 
 <table align="center">
   <tr>
@@ -190,7 +207,78 @@ Since we loop over our paths multiple times (usually 8 for me), we want to get r
 This was implemented as a potential performance speedup, the results of which are discussed below in the Analysis section. The way it is implemented is that since I already encode intersection material information as an ENUM, I simply use thrust::sort_by_key to sort my paths and intersections by treating the ENUMS as their integer value. Then, similarly to my grid sorting in my Boids project, I use a kernel to "unroll" this sorted array and get the start and end index of each material. I store these in a small array of size MaterialNumber, and then launch kernels for each material with a threadcount based on these results. I created a "None" material for terminated paths, which has the highest index, so it gets sorted to the end of my array. Thus, I can simply use the start index of this array to cut away these paths for my next loop, essentially giving me stream compaction for free.
 
 ### Imgui Features
-*Note: I should add this part after grading is done, since most of this was done after my official PR.*
+<table align="center">
+  <tr>
+    <td align="center">
+      <img src="img/imgui1.png"  width = "80%"/>
+      <br>
+      <em>The first ImGUI tab with Environment Map and Draw Mode options</em>
+    </td>
+    <td align="center">
+      <img src="img/imgui2.png"  width = "90%"/>
+      <br>
+      <em> The second tab with Depth of Field and AA options</em>
+    </td>
+  </tr>
+
+  <tr>
+    <td align="center">
+      <img src="img/imgui3.png"  width = "80%"/>
+      <br>
+      <em>The third tab with performance toggles</em>
+    </td>
+    <td align="center">
+      <img src="img/imgui4.png"  width = "90%"/>
+      <br>
+      <em>The fourth tab with camera information</em>
+    </td>
+  </tr>
+</table>
+
+I added a variety of ImGUI features for debugging purposes and to assist me with creating this Readme, which turned out to be quite helpful. The window constantly displays performance and scene statistics, such as the number of triangles and the current frame rate and iteration, has a button at the bottom to save the current display as an image, and has 4 tabs for different options/data. They are shown right above, and their functions have all been discussed before, besides the draw mode dropdown. This helped me greatly with debugging and provided some very neat visuals by displaying the following channels:
+<table align="center">
+  <tr>
+    <td align="center">
+      <img src="img/matsBeauty.png" width="100%"/>
+      <br>
+      <em>Standard - the path traced scene</em>
+    </td>
+    <td align="center">
+      <img src="img/matsBVH.png" width="110%"/>
+      <br>
+      <em>BVH - the bounding boxes</em>
+    </td>
+    <td align="center">
+      <img src="img/matsAlbedo.png" width="110%"/>
+      <br>
+      <em>Albedo - the pure colors</em>
+    </td>
+    <td align="center">
+      <img src="img/matsNormals.png" width="110%"/>
+      <br>
+      <em>Normals - the surface normal information</em>
+    </td>
+  </tr>
+  
+  <tr>
+    <td align="center">
+      <img src="img/matsMetalRough.png" width="110%"/>
+      <br>
+      <em>Metal Rough - the PBR metal rough mask channel</em>
+    </td>
+    <td align="center">
+      <img src="img/matsDepth.png" width="110%"/>
+      <br>
+      <em>Depth - distance from the camera, where dark is farther</em>
+    </td>
+    <td align="center">
+      <img src="img/matsMats.png" width="110%"/>
+      <br>
+      <em>Materials - showing which of my code-side materials I use for each object</em>
+    </td>
+  </tr>
+</table>
+On the code side, this feature is simply an ENUM. The normal drawing uses my general path tracing code. The BVH visualization uses a unique kernel that simply checks if a ray intersects bounding boxes starting from the root of the tree, and adds a flat color value if it does. The rest share the same kernel and simply return the information based on the ENUM type. Given that I don't have a near or far clip plane, the shading of the distance-based visualization is completely arbitrary, but I thought it was neat.
 
 ## Analysis
 Before jumping in, here are the scenes and their stats that I am using for analysis. Most of these have popped up above in the showcase, since they display a variety of features, so I thought they would also be a varied enough collection for good performance analysis.

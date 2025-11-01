@@ -1,7 +1,7 @@
 #include "GLTFManager.h"
 
-#define BalancedBVH false
-#define BuildFastBVH false
+#define BalancedBVH true
+#define BuildFastBVH true
 
 TextureLoader::TextureLoader() = default;
 
@@ -784,9 +784,9 @@ bool GLTFManager::addScene(const GLTFLoader& loader, TextureLoader& texture_load
         cuda_mat.ao = mat.ao;
 
         // Load textures
-        cuda_mat.base_color_tex = texture_loader.getTexture(mat.base_color_texture_path);
-        cuda_mat.metallic_roughness_tex = texture_loader.getTexture(mat.metallic_roughness_texture_path);
-        cuda_mat.normal_tex = texture_loader.getTexture(mat.normal_texture_path);
+        cuda_mat.base_color_tex = mat.base_color_texture_path != "" ? texture_loader.getTexture(mat.base_color_texture_path) : 0;
+        cuda_mat.metallic_roughness_tex = mat.metallic_roughness_texture_path != "" ? texture_loader.getTexture(mat.metallic_roughness_texture_path) : 0;
+        cuda_mat.normal_tex = mat.normal_texture_path != "" ? texture_loader.getTexture(mat.normal_texture_path) : 0;
 
         host_materials.push_back(cuda_mat);
     }

@@ -211,7 +211,7 @@ namespace PBR
         }
         if (mat->normal_tex != 0)
         {
-            nor = glm::vec3(Utils::sampleTexture(mat->normal_tex, uv));
+            nor = glm::normalize(glm::vec3(Utils::sampleTexture(mat->normal_tex, uv)));
         }
     }
 
@@ -362,11 +362,13 @@ namespace PBR
         glm::vec2 uv = intSect->uv;
         Material mat = materials[intSect->materialId];
         glm::vec3 albedo = mat.color;
-        glm::vec3 nor = intSect->surfaceNormal;
+        glm::vec3 nor = glm::normalize(intSect->surfaceNormal);
         float metallic = mat.metallic;
         float roughness = mat.roughness;
         float ao = 1.;
+        //printf("albedo premap: %f %f %f\n", albedo.x, albedo.y, albedo.z);
         handleMaterialMaps(&mat, uv, albedo, metallic, roughness, ao, nor);
+        //printf("albedo postmap: %f %f %f\n", albedo.x, albedo.y, albedo.z);
         glm::vec3 wo = -seg->ray.direction;
         glm::vec3 wi;
 
@@ -380,7 +382,7 @@ namespace PBR
 
         if (roll <= probSpec)
         {
-            //GGS Microfacet
+            //GGX Microfacet
             glm::vec2 xi = glm::vec2(u01(rng), u01(rng));
             roughness = glm::clamp(roughness, 0.0f, 1.0f);
             float alpha = roughness * roughness;
@@ -423,6 +425,12 @@ namespace PBR
         ShadeableIntersection* shadeableIntersections,
         PathSegment* pathSegments,
         Material* materials, Material* pbr_materials, cudaTextureObject_t envMap);
+
+    __global__ void kernShadeSpecific(
+        int num_paths,
+        ShadeableIntersection* shadeableIntersections,
+        PathSegment* pathSegments,
+        Material* materials, Material* pbr_materials, DrawMode drawMode);
 
     __global__ void kernShadeNosect(int num_paths,
         PathSegment* pathSegments, cudaTextureObject_t envMap);

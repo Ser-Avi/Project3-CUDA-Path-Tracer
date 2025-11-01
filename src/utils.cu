@@ -233,7 +233,94 @@ namespace PBR
             printf("ERROR: No mat type in kernShadeAll at index: %d", idx);
             break;
         }
+    }
 
+    __global__ void kernShadeSpecific(
+        int num_paths,
+        ShadeableIntersection* shadeableIntersections,
+        PathSegment* pathSegments,
+        Material* materials, Material* pbr_materials, DrawMode drawMode)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (idx > num_paths - 1) return;
+
+        PathSegment* seg = &pathSegments[idx];
+        ShadeableIntersection* intsect = &shadeableIntersections[idx];
+        MaterialType matType = intsect->materialType;
+
+        glm::vec2 uv = intsect->uv;
+        Material mat;
+        if (matType == PBR_GLTF)
+        {
+            mat = pbr_materials[intsect->materialId];
+        }
+        else
+        {
+            mat = materials[intsect->materialId];
+        }
+        glm::vec3 albedo = mat.color;
+        glm::vec3 nor = glm::normalize(intsect->surfaceNormal);
+        float metallic = mat.metallic;
+        float roughness = mat.roughness;
+        float ao = 0.;
+        //printf("albedo premap: %f %f %f\n", albedo.x, albedo.y, albedo.z);
+        handleMaterialMaps(&mat, uv, albedo, metallic, roughness, ao, nor);
+        glm::vec3 color;
+        switch (drawMode)
+        {
+        case NORMALS:
+            color = glm::length(nor) < EPSILON ? glm::vec3(0.f) : (nor + glm::vec3(1.f)) * 0.5f;
+            break;
+        case METALROUGH:
+            color = glm::vec3(ao, metallic, roughness);
+            break;
+        case ALBEDO:
+            color = intsect->t < 0 ? glm::vec3(0.f) : albedo;
+            break;
+        case DEPTH:
+            color = glm::vec3(1.f) - (glm::vec3(intsect->t) * 0.025f);
+            break;
+        case MATERIALS:
+            // this is not well coded, but that's life sometimes
+            // we have 7 materials, here are their colors
+            // 0: None -> black
+            // 1: Emissive -> white
+            // 2: Diffuse -> Red
+            // 3: Specular Refl -> gray
+            // 4: Specular Trans -> light blue
+            // 5: Dielectric -> dark blue
+            // 6: PBR_Mat -> Green
+            // 7: PBR_GLTF -> Orange
+            switch (matType)
+            {
+            case NONE:
+                color = glm::vec3(0.f);
+                break;
+            case EMISSIVE:
+                color = glm::vec3(1.f);
+                break;
+            case DIFFUSE:
+                color = glm::vec3(1.f, 0.f, 0.f);
+                break;
+            case SPECULAR_REFL:
+                color = glm::vec3(0.5f);
+                break;
+            case SPECULAR_TRANS:
+                color = glm::vec3(0.6f, 0.6f, 1.f);
+                break;
+            case DIELECTRIC:
+                color = glm::vec3(0.f, 0.f, 0.6f);
+                break;
+            case PBR_MAT:
+                color = glm::vec3(0.f, 1.f, 0.f);
+                break;
+            case PBR_GLTF:
+                color = glm::vec3(0.8f, 0.5f, 0.f);
+                break;
+            }
+            break;
+        }
+        seg->color = color;
     }
     __global__ void kernShadeNosect(int num_paths,
         PathSegment* pathSegments, cudaTextureObject_t envMap)

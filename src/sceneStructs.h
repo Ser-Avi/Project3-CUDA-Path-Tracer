@@ -17,6 +17,17 @@ enum GeomType
     TRIANGLE
 };
 
+enum DrawMode
+{
+    STANDARD,
+    BVH_VIS,
+    ALBEDO,
+    NORMALS,
+    METALROUGH,
+    DEPTH,
+    MATERIALS
+};
+
 struct alignas(32) BVHNode
 {
     glm::vec3 aabbMin, aabbMax;
@@ -74,7 +85,7 @@ struct Material
     float probReflVTrans = 0.5; // the probability of it reflecting vs transmitting
     float indexOfRefraction;
     float emittance = 0.;   // default to non-emissive
-    float roughness = 1.;   // default to rough plastic for pbr
+    float roughness = 0.;   // default to rough plastic for pbr
     float metallic = 0.;
     float ao = 1.;
     glm::vec3 emissive_factor;

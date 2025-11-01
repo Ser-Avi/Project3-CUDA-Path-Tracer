@@ -218,7 +218,7 @@ __device__ float IntersectBVH_Naive(Ray& ray, const uint32_t nodeIdx, BVHNode* b
     glm::vec2 tmp_uv;
     float min_t = FLT_MAX;
 
-    BVHNode nodeStack[64]; // max recursion depth is 16 for now -> NOTE: increase if dealing with large models
+    BVHNode nodeStack[32]; // max recursion depth is 32 for now -> should be enough for any scene as 2^32 = 4,294,967,296
     int stackIdx = 0;
     nodeStack[stackIdx++] = bvhNode[0];
 

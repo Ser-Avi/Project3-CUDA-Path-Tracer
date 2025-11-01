@@ -76,9 +76,9 @@ public:
         float roughness = 1.0f;
         float ao = 1.0f;
         // Paths to external textures
-        std::string base_color_texture_path;
-        std::string metallic_roughness_texture_path;
-        std::string normal_texture_path;
+        std::string base_color_texture_path = "";
+        std::string metallic_roughness_texture_path = "";
+        std::string normal_texture_path = "";
     };
 
     struct TextureData {
