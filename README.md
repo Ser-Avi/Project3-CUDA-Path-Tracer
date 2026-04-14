@@ -34,12 +34,12 @@ Beyond these features, I also added the following, which I will describe and ana
  * Supporting diffuse, specular, transmissive, dielectric, and PBR (using a GGX Microfacet model).
  * Stochastic Sampled anti-aliasing.
  * Supporting JSON primitives (spheres and boxes), and gLTF mesh imports with external (non-binary) textures using the tinygLTF library.
- * Depth of Field
+ * Physically accurate Depth of Field
  * .hdr environment maps
  * Bounding Volume Hierarchies using a Surface Area Heuristic for much faster runtime improvements and binned construction for much faster pre-process building.
  * Stream Compaction
  * Material Sorting
- * Various ImGui features to toggle all of these above, display runtime information, and toggle channels for swapping between the scene, its albedo, its metal-roughness, its BVHs, its normals, or its depth. (ignore this graders lol, this was done after the PR)
+ * Various ImGui features to toggle all of these above, display runtime information, and toggle channels for swapping between the scene, its albedo, its metal-roughness, its BVHs, its normals, or its depth.
 
 The scenes, gLTFs, and environment maps I used and a few more are in the scenes folder if you would like to recreate these on your own machine. I believe they should all work after setting up the project with Cmake and building it, but I only tested it on my personal laptop.
 The images in this readme and more (including a [4k version of the image above](https://github.com/Ser-Avi/Project3-CUDA-Path-Tracer/blob/main/img/time4k.png), which took approx. 2 hours to render at 0.7fps) are found in the img folder.
